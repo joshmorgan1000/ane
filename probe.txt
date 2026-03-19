@@ -1,0 +1,956 @@
+╔══════════════════════════════════════════════════════════════════╗
+║          Comprehensive SVE2/SME Instruction Probe                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+━━━ [1] System Info ━━━
+Apple M4 Max
+  Cores: 16 total
+  FEAT_SME               = 1
+  FEAT_SME2              = 1
+  FEAT_SVE               = n/a
+  FEAT_SVE2              = n/a
+  FEAT_SME_F64F64        = 1
+  FEAT_SME_I16I64        = 1
+  FEAT_SME_FA64          = n/a
+  FEAT_BF16              = 1
+  FEAT_I8MM              = 1
+  FEAT_SHA3              = 1
+  FEAT_AES               = 1
+  FEAT_SSVE_AES          = n/a
+
+━━━ [2a] SVE/SVE2 Arithmetic (in streaming mode) ━━━
+  add    z0.b, z1.b, z2.b               (INT8 add)           [32mWORKS[0m
+  add    z0.h, z1.h, z2.h               (INT16 add)          [32mWORKS[0m
+  add    z0.s, z1.s, z2.s               (INT32 add)          [32mWORKS[0m
+  add    z0.d, z1.d, z2.d               (INT64 add)          [32mWORKS[0m
+  sub    z0.b, z1.b, z2.b               (INT8 sub)           [32mWORKS[0m
+  sub    z0.h, z1.h, z2.h               (INT16 sub)          [32mWORKS[0m
+  sub    z0.s, z1.s, z2.s               (INT32 sub)          [32mWORKS[0m
+  sub    z0.d, z1.d, z2.d               (INT64 sub)          [32mWORKS[0m
+  abs    z0.b, p0/m, z1.b               (INT8 abs)           [32mWORKS[0m
+  neg    z0.b, p0/m, z1.b               (INT8 neg)           [32mWORKS[0m
+  mul    z0.b, z1.b, z2.b               (INT8 mul)           [32mWORKS[0m
+  mul    z0.h, z1.h, z2.h               (INT16 mul)          [32mWORKS[0m
+  mul    z0.s, z1.s, z2.s               (INT32 mul)          [32mWORKS[0m
+  smulh  z0.b, z1.b, z2.b               (INT8 mulhi s)       [32mWORKS[0m
+  umulh  z0.b, z1.b, z2.b               (INT8 mulhi u)       [32mWORKS[0m
+  sdiv   z0.s, p0/m, z0.s, z1.s         (INT32 sdiv)         [32mWORKS[0m
+  udiv   z0.s, p0/m, z0.s, z1.s         (INT32 udiv)         [32mWORKS[0m
+
+━━━ [2b] SVE/SVE2 FP Arithmetic (in streaming mode) ━━━
+  fadd   z0.s, z1.s, z2.s               (FP32 add)           [32mWORKS[0m
+  fsub   z0.s, z1.s, z2.s               (FP32 sub)           [32mWORKS[0m
+  fmul   z0.s, z1.s, z2.s               (FP32 mul)           [32mWORKS[0m
+  fmla   z0.s, p0/m, z1.s, z2.s         (FP32 fma)           [32mWORKS[0m
+  fmls   z0.s, p0/m, z1.s, z2.s         (FP32 fms)           [32mWORKS[0m
+  fdiv   z0.s, p0/m, z0.s, z1.s         (FP32 div)           [32mWORKS[0m
+  fmax   z0.s, p0/m, z0.s, z1.s         (FP32 max)           [32mWORKS[0m
+  fmin   z0.s, p0/m, z0.s, z1.s         (FP32 min)           [32mWORKS[0m
+  fabs   z0.s, p0/m, z1.s               (FP32 abs)           [32mWORKS[0m
+  fneg   z0.s, p0/m, z1.s               (FP32 neg)           [32mWORKS[0m
+  frecpe z0.s, z1.s                      (FP32 recip)        [31mSIGILL[0m
+  frsqrte z0.s, z1.s                     (FP32 rsqrt)        [31mSIGILL[0m
+  frecps z0.s, z0.s, z1.s               (recip step)         [32mWORKS[0m
+  frsqrts z0.s, z0.s, z1.s              (rsqrt step)         [32mWORKS[0m
+  fexpa  z0.s, z1.s                      (2^x approx)        [31mSIGILL[0m
+  fscale z0.s, p0/m, z0.s, z1.s         (scale 2^n)          [32mWORKS[0m
+  ftmad  z0.s, z0.s, z1.s, #0           (trig coeff)         [31mSIGILL[0m
+  fadda  s0, p0, s0, z1.s               (ordered sum)        [31mSIGILL[0m
+  faddp  z0.s, p0/m, z0.s, z1.s         (pairwise add)       [32mWORKS[0m
+
+━━━ [2c] SVE2 Dot Products (in streaming mode) ━━━
+  sdot   z2.s, z0.b, z1.b               (INT8 sdot)          [32mWORKS[0m
+  udot   z2.s, z0.b, z1.b               (UINT8 udot)         [32mWORKS[0m
+  usdot  z2.s, z0.b, z1.b               (mixed usdot)        [32mWORKS[0m
+  cdot   z2.s, z0.b, z1.b, #0           (complex dot)        [32mWORKS[0m
+  sdot   z0.s, z0.b, z1.b[0]            (indexed sdot)       [32mWORKS[0m
+  fdot   z0.s, z1.h, z2.h               (FP16 2-way)         [32mWORKS[0m
+  bfdot  z0.s, z1.h, z2.h               (BF16 dot)           [32mWORKS[0m
+
+━━━ [2d] SVE2 Matrix Multiply (in streaming mode) ━━━
+  fmmla  z0.s, z1.s, z2.s               (FP32 matmul)        [31mSIGILL[0m
+  bfmmla z0.s, z1.h, z2.h               (BF16 matmul)        [31mSIGILL[0m
+
+━━━ [2e] SVE2 Widening Arithmetic (in streaming mode) ━━━
+  saddlb z0.h, z1.b, z2.b               (widen add lo s)     [32mWORKS[0m
+  saddlt z0.h, z1.b, z2.b               (widen add hi s)     [32mWORKS[0m
+  uaddlb z0.h, z1.b, z2.b               (widen add lo u)     [32mWORKS[0m
+  uaddlt z0.h, z1.b, z2.b               (widen add hi u)     [32mWORKS[0m
+  smullb z0.h, z1.b, z2.b               (widen mul lo s)     [32mWORKS[0m
+  smullt z0.h, z1.b, z2.b               (widen mul hi s)     [32mWORKS[0m
+  umullb z0.h, z1.b, z2.b               (widen mul lo u)     [32mWORKS[0m
+  umullt z0.h, z1.b, z2.b               (widen mul hi u)     [32mWORKS[0m
+  smlalb z0.h, z1.b, z2.b               (widen mla lo s)     [32mWORKS[0m
+  smlalt z0.h, z1.b, z2.b               (widen mla hi s)     [32mWORKS[0m
+  umlalb z0.h, z1.b, z2.b               (widen mla lo u)     [32mWORKS[0m
+  umlalt z0.h, z1.b, z2.b               (widen mla hi u)     [32mWORKS[0m
+
+━━━ [2f] SVE2 Narrowing (in streaming mode) ━━━
+  addhnb z0.b, z1.h, z2.h               (narrow add hi lo)   [32mWORKS[0m
+  addhnt z0.b, z1.h, z2.h               (narrow add hi hi)   [32mWORKS[0m
+  sqxtnb z0.b, z1.h                      (sat narrow lo s)   [32mWORKS[0m
+  uqxtnb z0.b, z1.h                      (sat narrow lo u)   [32mWORKS[0m
+  sqshrnb z0.b, z1.h, #1                 (sat shift narrow)  [31mSIGILL[0m
+  uqshrnb z0.b, z1.h, #1                 (sat shift narrow)  [31mSIGILL[0m
+
+━━━ [2g] SVE Table Lookup (in streaming mode) ━━━
+  tbl    z0.b, {z1.b}, z2.b             (64-byte lookup)     [32mWORKS[0m
+  tbx    z0.b, z1.b, z2.b               (merge lookup)       [32mWORKS[0m
+  tblq   z0.b, {z1.b}, z2.b             (per-128 lookup)     [32mWORKS[0m
+  tbxq   z0.b, z1.b, z2.b               (per-128 merge)      [32mWORKS[0m
+
+━━━ [2h] SVE Permute (in streaming mode) ━━━
+  zip1   z0.b, z1.b, z2.b               (interleave lo)      [32mWORKS[0m
+  zip2   z0.b, z1.b, z2.b               (interleave hi)      [32mWORKS[0m
+  uzp1   z0.b, z1.b, z2.b               (deintrlv lo)        [32mWORKS[0m
+  uzp2   z0.b, z1.b, z2.b               (deintrlv hi)        [32mWORKS[0m
+  trn1   z0.b, z1.b, z2.b               (transpose lo)       [32mWORKS[0m
+  trn2   z0.b, z1.b, z2.b               (transpose hi)       [32mWORKS[0m
+  rev    z0.b, z1.b                      (reverse)           [32mWORKS[0m
+  revb   z0.h, p0/m, z1.h               (byte reverse)       [32mWORKS[0m
+  splice z0.b, p0, z0.b, z1.b           (splice)             [32mWORKS[0m
+  ext    z0.b, z0.b, z1.b, #0           (extract)            [32mWORKS[0m
+  compact z0.s, p0, z1.s                 (compact)           [31mSIGILL[0m
+
+━━━ [2i] SVE Bitwise (in streaming mode) ━━━
+  and    z0.d, z1.d, z2.d               (AND)                [32mWORKS[0m
+  orr    z0.d, z1.d, z2.d               (OR)                 [32mWORKS[0m
+  eor    z0.d, z1.d, z2.d               (XOR)                [32mWORKS[0m
+  not    z0.b, p0/m, z1.b               (NOT)                [32mWORKS[0m
+  bic    z0.d, z1.d, z2.d               (AND NOT)            [32mWORKS[0m
+  bsl    z0.d, z0.d, z1.d, z2.d         (bit select)         [32mWORKS[0m
+  nbsl   z0.d, z0.d, z1.d, z2.d         (nand select)        [32mWORKS[0m
+  eor3   z0.d, z0.d, z1.d, z2.d         (3-way XOR)          [32mWORKS[0m
+  bcax   z0.d, z0.d, z1.d, z2.d         (bic-and-xor)        [32mWORKS[0m
+  rbit   z0.b, p0/m, z1.b               (reverse bits)       [31mSIGILL[0m
+
+━━━ [2j] SVE Shift (in streaming mode) ━━━
+  lsl    z0.b, p0/m, z0.b, z1.b         (shift left)         [32mWORKS[0m
+  lsr    z0.b, p0/m, z0.b, z1.b         (shift right)        [32mWORKS[0m
+  asr    z0.b, p0/m, z0.b, z1.b         (arith right)        [32mWORKS[0m
+  sli    z0.b, z1.b, #0                  (shift left ins)    [32mWORKS[0m
+  sri    z0.b, z1.b, #8                  (shift right ins)   [32mWORKS[0m
+  xar    z0.b, z0.b, z1.b, #1           (xor-and-rotate)     [31mSIGILL[0m
+
+━━━ [2k] SVE Reduce (in streaming mode) ━━━
+  addv   d0, p0, z1.s                    (INT32 reduce)      [32mWORKS[0m
+  saddv  d0, p0, z1.b                    (INT8 widen sum)    [32mWORKS[0m
+  uaddv  d0, p0, z1.b                    (UINT8 widen sum)   [32mWORKS[0m
+  smaxv  b0, p0, z1.b                    (INT8 max)          [32mWORKS[0m
+  sminv  b0, p0, z1.b                    (INT8 min)          [32mWORKS[0m
+  umaxv  b0, p0, z1.b                    (UINT8 max)         [32mWORKS[0m
+  uminv  b0, p0, z1.b                    (UINT8 min)         [32mWORKS[0m
+  faddv  s0, p0, z1.s                    (FP32 sum)          [31mSIGILL[0m
+  fmaxv  s0, p0, z1.s                    (FP32 max)          [32mWORKS[0m
+  fminv  s0, p0, z1.s                    (FP32 min)          [32mWORKS[0m
+
+━━━ [2l] SVE Compare (in streaming mode) ━━━
+  cmpeq  p0.b, p0/z, z0.b, z1.b         (==)                 [32mWORKS[0m
+  cmpgt  p0.b, p0/z, z0.b, z1.b         (>  signed)          [32mWORKS[0m
+  cmpge  p0.b, p0/z, z0.b, z1.b         (>= signed)          [32mWORKS[0m
+  cmphi  p0.b, p0/z, z0.b, z1.b         (>  unsigned)        [32mWORKS[0m
+  cmphs  p0.b, p0/z, z0.b, z1.b         (>= unsigned)        [32mWORKS[0m
+  match  p0.b, p0/z, z0.b, z1.b         (set match)          [31mSIGILL[0m
+  nmatch p0.b, p0/z, z0.b, z1.b         (no match)           [31mSIGILL[0m
+
+━━━ [2m] SVE Min/Max/Clamp (in streaming mode) ━━━
+  smax   z0.b, z1.b, z2.b               (signed max)         [32mWORKS[0m
+  smin   z0.b, z1.b, z2.b               (signed min)         [32mWORKS[0m
+  umax   z0.b, z1.b, z2.b               (unsigned max)       [32mWORKS[0m
+  umin   z0.b, z1.b, z2.b               (unsigned min)       [32mWORKS[0m
+  sclamp z0.s, z1.s, z2.s               (signed clamp)       [32mWORKS[0m
+  uclamp z0.s, z1.s, z2.s               (unsigned clamp)     [32mWORKS[0m
+
+━━━ [2n] SVE Convert (in streaming mode) ━━━
+  fcvtzs z0.s, p0/m, z1.s               (FP32->INT32)        [32mWORKS[0m
+  fcvtzu z0.s, p0/m, z1.s               (FP32->UINT32)       [32mWORKS[0m
+  scvtf  z0.s, p0/m, z1.s               (INT32->FP32)        [32mWORKS[0m
+  ucvtf  z0.s, p0/m, z1.s               (UINT32->FP32)       [32mWORKS[0m
+  fcvt   z0.s, p0/m, z1.h               (FP16->FP32)         [32mWORKS[0m
+  fcvt   z0.h, p0/m, z1.s               (FP32->FP16)         [32mWORKS[0m
+  bfcvt  z0.h, p0/m, z1.s               (FP32->BF16)         [32mWORKS[0m
+  sxtb   z0.h, p0/m, z1.h               (sign ext b)         [32mWORKS[0m
+  uxtb   z0.h, p0/m, z1.h               (zero ext b)         [32mWORKS[0m
+
+━━━ [2o] SVE Unpack (in streaming mode) ━━━
+  sunpkhi z0.h, z1.b                     (unpack hi s)       [32mWORKS[0m
+  sunpklo z0.h, z1.b                     (unpack lo s)       [32mWORKS[0m
+  uunpkhi z0.h, z1.b                     (unpack hi u)       [32mWORKS[0m
+  uunpklo z0.h, z1.b                     (unpack lo u)       [32mWORKS[0m
+
+━━━ [2p] SVE Saturating Arithmetic (in streaming mode) ━━━
+  sqadd  z0.b, z1.b, z2.b               (sat add s)          [32mWORKS[0m
+  uqadd  z0.b, z1.b, z2.b               (sat add u)          [32mWORKS[0m
+  sqsub  z0.b, z1.b, z2.b               (sat sub s)          [32mWORKS[0m
+  uqsub  z0.b, z1.b, z2.b               (sat sub u)          [32mWORKS[0m
+  sqdmulh z0.b, z1.b, z2.b              (sat dbl mul)        [32mWORKS[0m
+  sqrdmulh z0.b, z1.b, z2.b             (sat rnd mul)        [32mWORKS[0m
+
+━━━ [2q] SVE Crypto (in streaming mode) ━━━
+  aese   z0.b, z0.b, z1.b               (AES encrypt)        [31mSIGILL[0m
+  aesd   z0.b, z0.b, z1.b               (AES decrypt)        [31mSIGILL[0m
+  aesmc  z0.b, z0.b                      (AES mix col)       [31mSIGILL[0m
+  aesimc z0.b, z0.b                      (AES inv mix)       [31mSIGILL[0m
+  sm4e   z0.s, z0.s, z1.s               (SM4 encrypt)        [31mSIGILL[0m
+
+━━━ [2r] SVE Count/Bit (in streaming mode) ━━━
+  cnt    z0.b, p0/m, z1.b               (popcount)           [32mWORKS[0m
+  cls    z0.b, p0/m, z1.b               (lead sign)          [32mWORKS[0m
+  clz    z0.b, p0/m, z1.b               (lead zero)          [32mWORKS[0m
+  histcnt z0.s, p0/z, z1.s, z2.s        (hist count)         [31mSIGILL[0m
+  histseg z0.b, z1.b, z2.b              (hist segment)       [31mSIGILL[0m
+  pmul   z0.b, z1.b, z2.b               (poly mul)           [32mWORKS[0m
+
+━━━ [2s] SVE Loads/Stores (in streaming mode) ━━━
+  ld1b   {z0.b}, p0/z, [x0]             (INT8 load)          [32mWORKS[0m
+  st1b   {z0.b}, p0, [x0]               (INT8 store)         [32mWORKS[0m
+  ld1h   {z0.h}, p0/z, [x0]             (INT16 load)         [32mWORKS[0m
+  st1h   {z0.h}, p0, [x0]               (INT16 store)        [31mSIGILL[0m
+  ld1w   {z0.s}, p0/z, [x0]             (FP32 load)          [32mWORKS[0m
+  st1w   {z0.s}, p0, [x0]               (FP32 store)         [32mWORKS[0m
+
+━━━ [2t] SVE Predicate Ops (in streaming mode) ━━━
+  ptrue  p0.b                            (all-true .b)       [32mWORKS[0m
+  ptrue  p0.h                            (all-true .h)       [32mWORKS[0m
+  ptrue  p0.s                            (all-true .s)       [32mWORKS[0m
+  ptrue  p0.d                            (all-true .d)       [32mWORKS[0m
+  whilelt p0.s, xzr, x0                 (while lt)           [32mWORKS[0m
+  whilege p0.s, x0, x1                   (while >=)          [32mWORKS[0m
+  whilegt p0.s, x0, x1                   (while >)           [32mWORKS[0m
+
+━━━ [2u] SVE Vector Length Queries (in streaming mode) ━━━
+  cntb   x0                              (count bytes)       [32mWORKS[0m
+  cnth   x0                              (count halfs)       [32mWORKS[0m
+  cntw   x0                              (count words)       [32mWORKS[0m
+  cntd   x0                              (count dblwd)       [32mWORKS[0m
+  rdvl   x0, #1                          (read VL)           [32mWORKS[0m
+
+━━━ [2v] SVE Move/Broadcast (in streaming mode) ━━━
+  dup    z0.s, #0                        (broadcast 0)       [31mSIGILL[0m
+  dup    z0.s, w0                        (broadcast reg)     [32mWORKS[0m
+  mov    z0.s, #1                        (immediate)         [31mSIGILL[0m
+  index  z0.s, #0, #1                    (0,1,2,...)         [32mWORKS[0m
+  sel    z0.s, p0, z1.s, z2.s            (select)            [32mWORKS[0m
+  cpy    z0.s, p0/m, #0                  (copy imm)          [32mWORKS[0m
+  movprfx z0.s, p0/m, z1.s              (move prefix)        [32mWORKS[0m
+
+━━━ [3a] SME Outer Products (streaming+ZA mode) ━━━
+  smopa  za0.s, p0/m, p0/m, z0.b, z1.b  (INT8 outer s)       [32mWORKS[0m
+  umopa  za0.s, p0/m, p0/m, z0.b, z1.b  (INT8 outer u)       [32mWORKS[0m
+  fmopa  za0.s, p0/m, p0/m, z0.s, z1.s  (FP32 outer)         [32mWORKS[0m
+  bfmopa za0.s, p0/m, p0/m, z0.h, z1.h  (BF16 outer)         [32mWORKS[0m
+  bmopa  za0.s, p0/m, p0/m, z0.s, z1.s  (bitwise outer)      [32mWORKS[0m
+
+━━━ [3b] SME Outer Product Subtract (streaming+ZA mode) ━━━
+  smops  za0.s, p0/m, p0/m, z0.b, z1.b  (INT8 sub s)         [32mWORKS[0m
+  umops  za0.s, p0/m, p0/m, z0.b, z1.b  (INT8 sub u)         [32mWORKS[0m
+  fmops  za0.s, p0/m, p0/m, z0.s, z1.s  (FP32 sub)           [32mWORKS[0m
+
+━━━ [3c] SME Mixed-Sign Outer Products (streaming+ZA mode) ━━━
+  sumopa za0.s, p0/m, p0/m, z0.b, z1.b  (s*u outer)          [32mWORKS[0m
+  usmopa za0.s, p0/m, p0/m, z0.b, z1.b  (u*s outer)          [32mWORKS[0m
+
+━━━ [3d] SME ZA Accumulate (streaming+ZA mode) ━━━
+  addha  za0.s, p0/m, p0/m, z0.s        (horiz add)          [32mWORKS[0m
+  addva  za0.s, p0/m, p0/m, z0.s        (vert add)           [32mWORKS[0m
+
+━━━ [3e] SME Data Movement (streaming+ZA mode) ━━━
+  mova   z0.s, p0/m, za0h.s[w12, 0]     (tile->vec h)        [32mWORKS[0m
+  mova   z0.s, p0/m, za0v.s[w12, 0]     (tile->vec v)        [32mWORKS[0m
+  mova   za0h.s[w12, 0], p0/m, z0.s     (vec->tile)          [32mWORKS[0m
+  zero   {za}                            (zero ZA)           [32mWORKS[0m
+
+━━━ [3f] SME2 ZT0 Lookups (streaming+ZA mode) ━━━
+  luti2  z0.b, zt0, z1[0]               (2-bit ZT0)          [31mSIGILL[0m
+  luti4  z0.b, zt0, z1[0]               (4-bit ZT0)          [32mWORKS[0m
+  movt   z0, zt0[0]                      (read ZT0)          [31mSIGILL[0m
+
+━━━ [3g] SME2 Multi-Vector Dot (streaming+ZA mode) ━━━
+  sdot   za.s[w8,0], z0.b, z1.b         (multi sdot)         [31mSIGILL[0m
+  udot   za.s[w8,0], z0.b, z1.b         (multi udot)         [31mSIGILL[0m
+
+━━━ [3h] SME2 Narrowing from ZA (streaming+ZA mode) ━━━
+  sqcvt  z0.h, {za0.s-za1.s}            (sat narrow s)       [32mWORKS[0m
+  uqcvt  z0.h, {za0.s-za1.s}            (sat narrow u)       [32mWORKS[0m
+  sqcvtu z0.h, {za0.s-za1.s}            (sat narrow su)      [32mWORKS[0m
+
+━━━ [3i] SME2 Additional (streaming+ZA mode) ━━━
+  movaz  z0.s, za0h.s[w12, 0]           (move+zero)          [31mSIGILL[0m
+
+━━━ [5a] SVE Arithmetic Additional (streaming mode) ━━━
+  add    z0.s, z0.s, #1                   (ADD imm)          [32mWORKS[0m
+  sub    z0.s, z0.s, #1                   (SUB imm)          [32mWORKS[0m
+  add    z0.s, p0/m, z0.s, z1.s           (ADD pred)         [32mWORKS[0m
+  sub    z0.s, p0/m, z0.s, z1.s           (SUB pred)         [32mWORKS[0m
+  subr   z0.s, z0.s, #1                   (SUBR imm)         [32mWORKS[0m
+  subr   z0.s, p0/m, z0.s, z1.s           (SUBR pred)        [32mWORKS[0m
+  mul    z0.s, z0.s, #1                   (MUL imm)          [32mWORKS[0m
+  mad    z0.s, p0/m, z1.s, z2.s           (MAD)              [32mWORKS[0m
+  mla    z0.s, p0/m, z1.s, z2.s           (MLA pred)         [32mWORKS[0m
+  mls    z0.s, p0/m, z1.s, z2.s           (MLS pred)         [32mWORKS[0m
+  msb    z0.s, p0/m, z1.s, z2.s           (MSB)              [32mWORKS[0m
+  sdivr  z0.s, p0/m, z0.s, z1.s           (SDIVR)            [32mWORKS[0m
+  udivr  z0.s, p0/m, z0.s, z1.s           (UDIVR)            [32mWORKS[0m
+  cnot   z0.s, p0/m, z1.s                 (CNOT)             [32mWORKS[0m
+  cntp   x0, p0, p0.s                     (CNTP)             [32mWORKS[0m
+  addp   z0.s, p0/m, z0.s, z1.s           (ADDP)             [32mWORKS[0m
+  smaxp  z0.s, p0/m, z0.s, z1.s           (SMAXP)            [32mWORKS[0m
+  sminp  z0.s, p0/m, z0.s, z1.s           (SMINP)            [32mWORKS[0m
+  umaxp  z0.s, p0/m, z0.s, z1.s           (UMAXP)            [32mWORKS[0m
+  uminp  z0.s, p0/m, z0.s, z1.s           (UMINP)            [32mWORKS[0m
+
+━━━ [5b] SVE Absolute Difference (streaming mode) ━━━
+  sabd   z0.s, p0/m, z0.s, z1.s           (Signed abs difference) [32mWORKS[0m
+  uabd   z0.s, p0/m, z0.s, z1.s           (Unsigned abs difference) [32mWORKS[0m
+  fabd   z0.s, p0/m, z0.s, z1.s           (FP abs difference) [32mWORKS[0m
+
+━━━ [5c] SVE Halving Arithmetic (streaming mode) ━━━
+  shadd  z0.s, p0/m, z0.s, z1.s           (Signed halving add) [32mWORKS[0m
+  uhadd  z0.s, p0/m, z0.s, z1.s           (Unsigned halving add) [32mWORKS[0m
+  shsub  z0.s, p0/m, z0.s, z1.s           (Signed halving subtract) [32mWORKS[0m
+  uhsub  z0.s, p0/m, z0.s, z1.s           (Unsigned halving subtract) [32mWORKS[0m
+  shsubr z0.s, p0/m, z0.s, z1.s           (Signed halving sub reversed) [32mWORKS[0m
+  uhsubr z0.s, p0/m, z0.s, z1.s           (Unsigned halving sub reversed) [32mWORKS[0m
+  srhadd z0.s, p0/m, z0.s, z1.s           (Signed rounding halving add) [32mWORKS[0m
+  urhadd z0.s, p0/m, z0.s, z1.s           (Unsigned rounding halving add) [32mWORKS[0m
+
+━━━ [5d] SVE FP Additional (streaming mode) ━━━
+  fadd   z0.s, p0/m, z0.s, #0.5           (FADD imm)         [32mWORKS[0m
+  fsub   z0.s, p0/m, z0.s, #0.5           (FSUB imm)         [32mWORKS[0m
+  fmul   z0.s, p0/m, z0.s, #2.0           (FMUL imm)         [32mWORKS[0m
+  fmax   z0.s, p0/m, z0.s, #0.0           (FMAX imm)         [32mWORKS[0m
+  fmin   z0.s, p0/m, z0.s, #0.0           (FMIN imm)         [32mWORKS[0m
+  fmaxnm z0.s, p0/m, z0.s, z1.s           (FP max, propagate number) [32mWORKS[0m
+  fminnm z0.s, p0/m, z0.s, z1.s           (FP min, propagate number) [32mWORKS[0m
+  fmaxnm z0.s, p0/m, z0.s, #0.0           (FP max number, immediate) [32mWORKS[0m
+  fminnm z0.s, p0/m, z0.s, #0.0           (FP min number, immediate) [32mWORKS[0m
+  fsubr  z0.s, p0/m, z0.s, z1.s           (FP subtract reversed) [32mWORKS[0m
+  fsubr  z0.s, p0/m, z0.s, #0.5           (FP subtract reversed, imm) [32mWORKS[0m
+  fdivr  z0.s, p0/m, z0.s, z1.s           (FP divide reversed) [32mWORKS[0m
+  fmulx  z0.s, p0/m, z0.s, z1.s           (FP multiply extended) [32mWORKS[0m
+  fmad   z0.s, p0/m, z1.s, z2.s           (FP mul-add, destructive) [32mWORKS[0m
+  fmsb   z0.s, p0/m, z1.s, z2.s           (FP mul-sub, destructive) [32mWORKS[0m
+  fnmla  z0.s, p0/m, z1.s, z2.s           (FP neg multiply-add) [32mWORKS[0m
+  fnmls  z0.s, p0/m, z1.s, z2.s           (FP neg multiply-subtract) [32mWORKS[0m
+  fnmad  z0.s, p0/m, z1.s, z2.s           (FP neg mul-add, destructive) [32mWORKS[0m
+  fnmsb  z0.s, p0/m, z1.s, z2.s           (FP neg mul-sub, destructive) [32mWORKS[0m
+  fsqrt  z0.s, p0/m, z1.s                 (FP square root)   [32mWORKS[0m
+  frecpx z0.s, p0/m, z1.s                 (FP reciprocal exponent) [32mWORKS[0m
+  flogb  z0.s, p0/m, z1.s                 (FP base-2 log of exponent) [32mWORKS[0m
+  fmaxnmv s0, p0, z1.s                    (FP max number reduction) [32mWORKS[0m
+  fminnmv s0, p0, z1.s                    (FP min number reduction) [32mWORKS[0m
+  ftsmul z0.s, z1.s, z2.s                 (FP trig select coefficient) [31mSIGILL[0m
+  ftssel z0.s, z1.s, z2.s                 (FP trig start multiply) [31mSIGILL[0m
+
+━━━ [5e] SVE FP Pairwise (streaming mode) ━━━
+  fmaxp  z0.s, p0/m, z0.s, z1.s           (FP max pairwise)  [32mWORKS[0m
+  fminp  z0.s, p0/m, z0.s, z1.s           (FP min pairwise)  [32mWORKS[0m
+  fmaxnmp z0.s, p0/m, z0.s, z1.s          (FP max number pairwise) [32mWORKS[0m
+  fminnmp z0.s, p0/m, z0.s, z1.s          (FP min number pairwise) [32mWORKS[0m
+
+━━━ [5f] SVE FP Compare (streaming mode) ━━━
+  fcmeq  p0.s, p0/z, z0.s, z1.s           (FP compare equal) [32mWORKS[0m
+  fcmgt  p0.s, p0/z, z0.s, z1.s           (FP compare greater than) [32mWORKS[0m
+  fcmge  p0.s, p0/z, z0.s, z1.s           (FP compare greater/equal) [32mWORKS[0m
+  fcmne  p0.s, p0/z, z0.s, z1.s           (FP compare not equal) [32mWORKS[0m
+  fcmeq  p0.s, p0/z, z0.s, #0.0           (FP compare equal to zero) [32mWORKS[0m
+  fcmgt  p0.s, p0/z, z0.s, #0.0           (FP compare GT zero) [32mWORKS[0m
+  fcmge  p0.s, p0/z, z0.s, #0.0           (FP compare GE zero) [32mWORKS[0m
+  fcmne  p0.s, p0/z, z0.s, #0.0           (FP compare NE zero) [32mWORKS[0m
+  fcmlt  p0.s, p0/z, z0.s, #0.0           (FP compare LT zero) [32mWORKS[0m
+  fcmle  p0.s, p0/z, z0.s, #0.0           (FP compare LE zero) [32mWORKS[0m
+  facgt  p0.s, p0/z, z0.s, z1.s           (FP absolute compare GT) [32mWORKS[0m
+  facge  p0.s, p0/z, z0.s, z1.s           (FP absolute compare GE) [32mWORKS[0m
+
+━━━ [5g] SVE Convert Additional (streaming mode) ━━━
+  fcvtzs z0.s, p0/m, z1.d                 (FP64->I32)        [32mWORKS[0m
+  scvtf  z0.d, p0/m, z1.s                 (I32->FP64)        [32mWORKS[0m
+  fcvt   z0.d, p0/m, z1.s                 (FP32->FP64)       [32mWORKS[0m
+  sxth   z0.s, p0/m, z1.s                 (Sign-extend halfword) [32mWORKS[0m
+  sxtw   z0.d, p0/m, z1.d                 (Sign-extend word) [32mWORKS[0m
+  uxth   z0.s, p0/m, z1.s                 (Zero-extend halfword) [32mWORKS[0m
+  uxtw   z0.d, p0/m, z1.d                 (Zero-extend word) [32mWORKS[0m
+  bfcvtnt z0.h, p0/m, z1.s                (BF16 convert narrow top) [32mWORKS[0m
+
+━━━ [5h] SVE Rounding (streaming mode) ━━━
+  frinti z0.s, p0/m, z1.s                 (Round to int, current mode) [32mWORKS[0m
+  frintm z0.s, p0/m, z1.s                 (Round toward minus infinity) [32mWORKS[0m
+  frintn z0.s, p0/m, z1.s                 (Round to nearest, ties even) [32mWORKS[0m
+  frintp z0.s, p0/m, z1.s                 (Round toward plus infinity) [32mWORKS[0m
+  frinta z0.s, p0/m, z1.s                 (Round to nearest, ties away) [32mWORKS[0m
+  frintx z0.s, p0/m, z1.s                 (Round to int exact) [32mWORKS[0m
+  frintz z0.s, p0/m, z1.s                 (Round toward zero) [32mWORKS[0m
+
+━━━ [5i] SVE FP Indexed (streaming mode) ━━━
+  fmla   z0.s, z1.s, z2.s[0]              (FMLA idx)         [32mWORKS[0m
+  fmls   z0.s, z1.s, z2.s[0]              (FMLS idx)         [32mWORKS[0m
+  fmul   z0.s, z1.s, z2.s[0]              (FMUL idx)         [32mWORKS[0m
+
+━━━ [5j] SVE FP Complex (streaming mode) ━━━
+  fcadd  z0.s, p0/m, z0.s, z1.s, #90      (FP complex add)   [32mWORKS[0m
+  fcmla  z0.s, p0/m, z0.s, z1.s, #0       (FP complex multiply-add) [32mWORKS[0m
+  fcmla  z0.s, z1.s, z2.s[0], #0          (FP complex MLA indexed) [32mWORKS[0m
+
+━━━ [5k] SVE Widening FP (streaming mode) ━━━
+  fmlalb z0.s, z1.h, z2.h                 (FP16 widen mul-add low) [32mWORKS[0m
+  fmlalt z0.s, z1.h, z2.h                 (FP16 widen mul-add high) [32mWORKS[0m
+  fmlslb z0.s, z1.h, z2.h                 (FP16 widen mul-sub low) [32mWORKS[0m
+  fmlslt z0.s, z1.h, z2.h                 (FP16 widen mul-sub high) [32mWORKS[0m
+
+━━━ [5l] SVE Abs Diff Accumulate (streaming mode) ━━━
+  saba   z0.s, z1.s, z2.s                 (Signed abs diff accumulate) [32mWORKS[0m
+  uaba   z0.s, z1.s, z2.s                 (Unsigned abs diff accumulate) [32mWORKS[0m
+  sabalb z0.s, z1.h, z2.h                 (Signed abs diff acc, wid lo) [32mWORKS[0m
+  sabalt z0.s, z1.h, z2.h                 (Signed abs diff acc, wid hi) [32mWORKS[0m
+  uabalb z0.s, z1.h, z2.h                 (Unsigned abs diff acc, wid lo) [32mWORKS[0m
+  uabalt z0.s, z1.h, z2.h                 (Unsigned abs diff acc, wid hi) [32mWORKS[0m
+  sabdlb z0.s, z1.h, z2.h                 (Signed abs diff, widen lo) [32mWORKS[0m
+  sabdlt z0.s, z1.h, z2.h                 (Signed abs diff, widen hi) [32mWORKS[0m
+  uabdlb z0.s, z1.h, z2.h                 (Unsigned abs diff, widen lo) [32mWORKS[0m
+  uabdlt z0.s, z1.h, z2.h                 (Unsigned abs diff, widen hi) [32mWORKS[0m
+
+━━━ [5m] SVE Widening Int Additional (streaming mode) ━━━
+  saddlbt z0.s, z1.h, z2.h                (Signed add long, bot+top) [32mWORKS[0m
+  ssublb z0.s, z1.h, z2.h                 (Signed subtract long bottom) [32mWORKS[0m
+  ssublt z0.s, z1.h, z2.h                 (Signed subtract long top) [32mWORKS[0m
+  ssublbt z0.s, z1.h, z2.h                (Signed sub long, bot-top) [32mWORKS[0m
+  ssubltb z0.s, z1.h, z2.h                (Signed sub long, top-bot) [32mWORKS[0m
+  usublb z0.s, z1.h, z2.h                 (Unsigned sub long bottom) [32mWORKS[0m
+  usublt z0.s, z1.h, z2.h                 (Unsigned sub long top) [32mWORKS[0m
+  saddwb z0.s, z0.s, z1.h                 (Signed add wide, bottom) [32mWORKS[0m
+  saddwt z0.s, z0.s, z1.h                 (Signed add wide, top) [32mWORKS[0m
+  uaddwb z0.s, z0.s, z1.h                 (Unsigned add wide, bottom) [32mWORKS[0m
+  uaddwt z0.s, z0.s, z1.h                 (Unsigned add wide, top) [32mWORKS[0m
+  ssubwb z0.s, z0.s, z1.h                 (Signed sub wide, bottom) [32mWORKS[0m
+  ssubwt z0.s, z0.s, z1.h                 (Signed sub wide, top) [32mWORKS[0m
+  usubwb z0.s, z0.s, z1.h                 (Unsigned sub wide, bottom) [32mWORKS[0m
+  usubwt z0.s, z0.s, z1.h                 (Unsigned sub wide, top) [32mWORKS[0m
+  sadalp z0.s, p0/m, z1.h                 (Signed add+accum long pairwise) [32mWORKS[0m
+  uadalp z0.s, p0/m, z1.h                 (Unsigned add+accum long pw) [32mWORKS[0m
+
+━━━ [5n] SVE Narrowing Additional (streaming mode) ━━━
+  sqxtnt z0.b, z1.h                       (Sat narrow signed, top) [32mWORKS[0m
+  uqxtnt z0.b, z1.h                       (Sat narrow unsigned, top) [32mWORKS[0m
+  sqxtunb z0.b, z1.h                      (Sat narrow signed->uns, bot) [32mWORKS[0m
+  sqxtunt z0.b, z1.h                      (Sat narrow signed->uns, top) [32mWORKS[0m
+  shrnb  z0.b, z1.h, #1                   (Shift right narrow, bottom) [32mWORKS[0m
+  shrnt  z0.b, z1.h, #1                   (Shift right narrow, top) [32mWORKS[0m
+  rshrnb z0.b, z1.h, #1                   (Rounding shift narrow, bot) [32mWORKS[0m
+  rshrnt z0.b, z1.h, #1                   (Rounding shift narrow, top) [32mWORKS[0m
+  subhnb z0.b, z1.h, z2.h                 (Subtract narrow high, bot) [32mWORKS[0m
+  subhnt z0.b, z1.h, z2.h                 (Subtract narrow high, top) [32mWORKS[0m
+  raddhnb z0.b, z1.h, z2.h                (Rounding add narrow hi, bot) [32mWORKS[0m
+  raddhnt z0.b, z1.h, z2.h                (Rounding add narrow hi, top) [32mWORKS[0m
+  rsubhnb z0.b, z1.h, z2.h                (Rounding sub narrow hi, bot) [32mWORKS[0m
+  rsubhnt z0.b, z1.h, z2.h                (Rounding sub narrow hi, top) [32mWORKS[0m
+
+━━━ [5o] SVE Saturating Shift (streaming mode) ━━━
+  sqshl  z0.s, p0/m, z0.s, z1.s           (Sat shift left signed) [32mWORKS[0m
+  uqshl  z0.s, p0/m, z0.s, z1.s           (Sat shift left unsigned) [32mWORKS[0m
+  sqrshl z0.s, p0/m, z0.s, z1.s           (Sat rounding shift left, s) [32mWORKS[0m
+  uqrshl z0.s, p0/m, z0.s, z1.s           (Sat rounding shift left, u) [32mWORKS[0m
+  sqshlr z0.s, p0/m, z0.s, z1.s           (Sat shift left signed, rev) [32mWORKS[0m
+  uqshlr z0.s, p0/m, z0.s, z1.s           (Sat shift left unsigned, rev) [32mWORKS[0m
+  sqrshlr z0.s, p0/m, z0.s, z1.s          (Sat rounding shift s, rev) [32mWORKS[0m
+  uqrshlr z0.s, p0/m, z0.s, z1.s          (Sat rounding shift u, rev) [32mWORKS[0m
+  srshl  z0.s, p0/m, z0.s, z1.s           (Signed rounding shift left) [32mWORKS[0m
+  urshl  z0.s, p0/m, z0.s, z1.s           (Unsigned rounding shift left) [32mWORKS[0m
+  srshlr z0.s, p0/m, z0.s, z1.s           (Signed rounding shift, rev) [32mWORKS[0m
+  urshlr z0.s, p0/m, z0.s, z1.s           (Unsigned rounding shift, rev) [32mWORKS[0m
+  srshr  z0.s, p0/m, z0.s, #1             (Signed rounding shift right) [32mWORKS[0m
+  urshr  z0.s, p0/m, z0.s, #1             (Unsigned rounding shift right) [32mWORKS[0m
+
+━━━ [5p] SVE Saturating Misc (streaming mode) ━━━
+  sqabs  z0.s, p0/m, z1.s                 (Saturating absolute value) [32mWORKS[0m
+  sqneg  z0.s, p0/m, z1.s                 (Saturating negate) [32mWORKS[0m
+  suqadd z0.s, p0/m, z0.s, z1.s           (Signed sat add unsigned) [32mWORKS[0m
+  usqadd z0.s, p0/m, z0.s, z1.s           (Unsigned sat add signed) [32mWORKS[0m
+  sqadd  z0.s, p0/m, z0.s, z1.s           (Sat add signed, predicated) [32mWORKS[0m
+  uqadd  z0.s, p0/m, z0.s, z1.s           (Sat add unsigned, predicated) [32mWORKS[0m
+  sqsub  z0.s, p0/m, z0.s, z1.s           (Sat sub signed, predicated) [32mWORKS[0m
+  uqsub  z0.s, p0/m, z0.s, z1.s           (Sat sub unsigned, predicated) [32mWORKS[0m
+  sqsubr z0.s, p0/m, z0.s, z1.s           (Sat sub signed, reversed) [32mWORKS[0m
+  uqsubr z0.s, p0/m, z0.s, z1.s           (Sat sub unsigned, reversed) [32mWORKS[0m
+
+━━━ [5q] SVE Saturating Multiply Additional (streaming mode) ━━━
+  sqrdmlah z0.s, z1.s, z2.s               (Sat rnd dbl mul-add high) [32mWORKS[0m
+  sqrdmlsh z0.s, z1.s, z2.s               (Sat rnd dbl mul-sub high) [32mWORKS[0m
+  sqdmullb z0.s, z1.h, z2.h               (Sat doubling mul long, bot) [32mWORKS[0m
+  sqdmullt z0.s, z1.h, z2.h               (Sat doubling mul long, top) [32mWORKS[0m
+  sqdmlalb z0.s, z1.h, z2.h               (Sat dbl mul-add long, bot) [32mWORKS[0m
+  sqdmlalt z0.s, z1.h, z2.h               (Sat dbl mul-add long, top) [32mWORKS[0m
+  sqdmlslb z0.s, z1.h, z2.h               (Sat dbl mul-sub long, bot) [32mWORKS[0m
+  sqdmlslt z0.s, z1.h, z2.h               (Sat dbl mul-sub long, top) [32mWORKS[0m
+  sqdmlalbt z0.s, z1.h, z2.h              (Sat dbl mul-add long, bxt) [32mWORKS[0m
+  sqdmlslbt z0.s, z1.h, z2.h              (Sat dbl mul-sub long, bxt) [32mWORKS[0m
+
+━━━ [5r] SVE Complex Int (streaming mode) ━━━
+  cadd   z0.s, z0.s, z1.s, #90            (Complex integer add) [32mWORKS[0m
+  sqcadd z0.s, z0.s, z1.s, #90            (Sat complex integer add) [32mWORKS[0m
+  cmla   z0.s, z1.s, z2.s, #0             (Complex integer mul-add) [32mWORKS[0m
+  sqrdcmlah z0.s, z1.s, z2.s, #0          (Sat rnd cmplx dbl mul-add) [32mWORKS[0m
+
+━━━ [5s] SVE Shift Additional (streaming mode) ━━━
+  asr    z0.s, z1.s, #1                   (Arith shift right, immediate) [32mWORKS[0m
+  lsr    z0.s, z1.s, #1                   (Logical shift right, immediate) [32mWORKS[0m
+  lsl    z0.s, z1.s, #1                   (Logical shift left, immediate) [32mWORKS[0m
+  asrd   z0.s, p0/m, z0.s, #1             (Arith shift right, divide) [32mWORKS[0m
+  asrr   z0.s, p0/m, z0.s, z1.s           (Arith shift right, reversed) [32mWORKS[0m
+  lslr   z0.s, p0/m, z0.s, z1.s           (Logical shift left, reversed) [32mWORKS[0m
+  lsrr   z0.s, p0/m, z0.s, z1.s           (Logical shift right, reversed) [32mWORKS[0m
+  sqshl  z0.s, p0/m, z0.s, #1             (Sat shift left signed, imm) [32mWORKS[0m
+  uqshl  z0.s, p0/m, z0.s, #1             (Sat shift left unsigned, imm) [32mWORKS[0m
+  sqshlu z0.s, p0/m, z0.s, #1             (Sat shift left uns from signed) [32mWORKS[0m
+  srsra  z0.s, z1.s, #1                   (Signed rnd shift+accumulate) [32mWORKS[0m
+  ursra  z0.s, z1.s, #1                   (Unsigned rnd shift+accumulate) [32mWORKS[0m
+  ssra   z0.s, z1.s, #1                   (Signed shift right+accumulate) [32mWORKS[0m
+  usra   z0.s, z1.s, #1                   (Unsigned shift right+accum) [32mWORKS[0m
+  sshllb z0.s, z1.h, #0                   (Signed shift left long, bot) [32mWORKS[0m
+  sshllt z0.s, z1.h, #0                   (Signed shift left long, top) [32mWORKS[0m
+  ushllb z0.s, z1.h, #0                   (Unsigned shift left long, bot) [32mWORKS[0m
+  ushllt z0.s, z1.h, #0                   (Unsigned shift left long, top) [32mWORKS[0m
+
+━━━ [5t] SVE Narrowing Shift (streaming mode) ━━━
+  sqshrnb z0.h, z1.s, #1                  (Sat shift right narrow s, bot) [32mWORKS[0m
+  sqshrnt z0.h, z1.s, #1                  (Sat shift right narrow s, top) [32mWORKS[0m
+  uqshrnb z0.h, z1.s, #1                  (Sat shift right narrow u, bot) [32mWORKS[0m
+  uqshrnt z0.h, z1.s, #1                  (Sat shift right narrow u, top) [32mWORKS[0m
+  sqshrunb z0.h, z1.s, #1                 (Sat shift right nar s->u, bot) [32mWORKS[0m
+  sqshrunt z0.h, z1.s, #1                 (Sat shift right nar s->u, top) [32mWORKS[0m
+  sqrshrnb z0.h, z1.s, #1                 (Sat rnd shift narrow s, bot) [32mWORKS[0m
+  sqrshrnt z0.h, z1.s, #1                 (Sat rnd shift narrow s, top) [32mWORKS[0m
+  uqrshrnb z0.h, z1.s, #1                 (Sat rnd shift narrow u, bot) [32mWORKS[0m
+  uqrshrnt z0.h, z1.s, #1                 (Sat rnd shift narrow u, top) [32mWORKS[0m
+  sqrshrunb z0.h, z1.s, #1                (Sat rnd shift nar s->u, bot) [32mWORKS[0m
+  sqrshrunt z0.h, z1.s, #1                (Sat rnd shift nar s->u, top) [32mWORKS[0m
+
+━━━ [5u] SVE Bitwise Additional (streaming mode) ━━━
+  eorbt  z0.s, z1.s, z2.s                 (XOR bottom with top) [32mWORKS[0m
+  eortb  z0.s, z1.s, z2.s                 (XOR top with bottom) [32mWORKS[0m
+  bsl1n  z0.d, z0.d, z1.d, z2.d           (Bit select, first negated) [32mWORKS[0m
+  bsl2n  z0.d, z0.d, z1.d, z2.d           (Bit select, second negated) [32mWORKS[0m
+
+━━━ [5v] SVE Bit Manipulation (streaming mode) ━━━
+  bdep   z0.s, z1.s, z2.s                 (Bit deposit, scatter bits) [31mSIGILL[0m
+  bext   z0.s, z1.s, z2.s                 (Bit extract, gather bits) [31mSIGILL[0m
+  bgrp   z0.s, z1.s, z2.s                 (Bit group, partition bits) [31mSIGILL[0m
+
+━━━ [5w] SVE Polynomial (streaming mode) ━━━
+  pmullb z0.h, z1.b, z2.b                 (Polynomial mul long, bot) [32mWORKS[0m
+  pmullt z0.h, z1.b, z2.b                 (Polynomial mul long, top) [32mWORKS[0m
+
+━━━ [5x] SVE Carry (streaming mode) ━━━
+  adclb  z0.s, z1.s, z2.s                 (Add with carry long, bot) [32mWORKS[0m
+  adclt  z0.s, z1.s, z2.s                 (Add with carry long, top) [32mWORKS[0m
+  sbclb  z0.s, z1.s, z2.s                 (Sub with borrow long, bot) [32mWORKS[0m
+  sbclt  z0.s, z1.s, z2.s                 (Sub with borrow long, top) [32mWORKS[0m
+
+━━━ [5y] SVE Permute Additional (streaming mode) ━━━
+  zip1   p0.s, p0.s, p1.s                 (Interleave predicates, low) [32mWORKS[0m
+  zip2   p0.s, p0.s, p1.s                 (Interleave predicates, high) [32mWORKS[0m
+  uzp1   p0.s, p0.s, p1.s                 (Deinterleave preds, low) [32mWORKS[0m
+  uzp2   p0.s, p0.s, p1.s                 (Deinterleave preds, high) [32mWORKS[0m
+  trn1   p0.s, p0.s, p1.s                 (Transpose predicates, low) [32mWORKS[0m
+  trn2   p0.s, p0.s, p1.s                 (Transpose predicates, high) [32mWORKS[0m
+  rev    p0.s, p0.s                       (Reverse predicate elements) [32mWORKS[0m
+  punpkhi p0.h, p0.b                      (Pred unpack, high half->wide) [32mWORKS[0m
+  punpklo p0.h, p0.b                      (Pred unpack, low half->wide) [32mWORKS[0m
+  revh   z0.s, p0/m, z1.s                 (Reverse halfwords in element) [32mWORKS[0m
+  revw   z0.d, p0/m, z1.d                 (Reverse words in element) [32mWORKS[0m
+  insr   z0.s, w0                         (Insert scalar GPR at elem 0) [32mWORKS[0m
+  insr   z0.s, s0                         (Insert SIMD scalar at elem 0) [32mWORKS[0m
+
+━━━ [5z] SVE Element Extract (streaming mode) ━━━
+  lasta  w0, p0, z0.s                     (Extract after last active, GPR) [32mWORKS[0m
+  lastb  w0, p0, z0.s                     (Extract last active, GPR) [32mWORKS[0m
+  lasta  s0, p0, z0.s                     (Extract after last active, SIMD) [32mWORKS[0m
+  lastb  s0, p0, z0.s                     (Extract last active, SIMD) [32mWORKS[0m
+  clasta z0.s, p0, z0.s, z1.s             (Cond extract after last active) [32mWORKS[0m
+  clastb z0.s, p0, z0.s, z1.s             (Cond extract last active) [32mWORKS[0m
+
+━━━ [6a] SVE Predicate Additional (streaming mode) ━━━
+  pfalse p0.b                             (Set predicate to all-false) [32mWORKS[0m
+  pfirst p0.b, p0, p0.b                   (Set first active to true) [32mWORKS[0m
+  pnext  p0.s, p0, p0.s                   (Find next active element) [32mWORKS[0m
+  ptest  p0, p0.b                         (Test predicate, set flags) [32mWORKS[0m
+  ptrues p0.s                             (All-true predicate, set flags) [32mWORKS[0m
+  brka   p0.b, p0/z, p0.b                 (Break after first active) [32mWORKS[0m
+  brkb   p0.b, p0/z, p0.b                 (Break before first active) [32mWORKS[0m
+  brkn   p0.b, p0/z, p0.b, p0.b           (Propagate break to next part) [32mWORKS[0m
+  brkpa  p0.b, p0/z, p0.b, p0.b           (Break after from pair) [32mWORKS[0m
+  brkpb  p0.b, p0/z, p0.b, p0.b           (Break before from pair) [32mWORKS[0m
+  nand   p0.b, p0/z, p0.b, p0.b           (Pred bitwise NAND) [32mWORKS[0m
+  nor    p0.b, p0/z, p0.b, p0.b           (Pred bitwise NOR) [32mWORKS[0m
+  orn    p0.b, p0/z, p0.b, p0.b           (Pred bitwise OR-NOT) [32mWORKS[0m
+  bic    p0.b, p0/z, p0.b, p0.b           (Pred bitwise AND-NOT) [32mWORKS[0m
+  ands   p0.b, p0/z, p0.b, p0.b           (Pred AND, setting flags) [32mWORKS[0m
+  orrs   p0.b, p0/z, p0.b, p0.b           (Pred OR, setting flags) [32mWORKS[0m
+  eors   p0.b, p0/z, p0.b, p0.b           (Pred XOR, setting flags) [32mWORKS[0m
+  sel    p0.b, p0, p0.b, p0.b             (Select predicate elements) [32mWORKS[0m
+
+━━━ [6b] SVE While Additional (streaming mode) ━━━
+  whilele p0.s, x0, x1                    (Pred while less-or-equal) [32mWORKS[0m
+  whilehi p0.s, x0, x1                    (Pred while higher, unsigned) [32mWORKS[0m
+  whilehs p0.s, x0, x1                    (Pred while higher/same, uns) [32mWORKS[0m
+  whilelo p0.s, x0, x1                    (Pred while lower, unsigned) [32mWORKS[0m
+  whilels p0.s, x0, x1                    (Pred while lower/same, uns) [32mWORKS[0m
+  whilerw p0.s, x0, x1                    (Pred while read-after-write) [32mWORKS[0m
+  whilewr p0.s, x0, x1                    (Pred while write-after-read) [32mWORKS[0m
+  ctermeq x0, x1                          (Compare and terminate if eq) [32mWORKS[0m
+  ctermne x0, x1                          (Compare and terminate if ne) [32mWORKS[0m
+
+━━━ [6c] SVE Reduction Additional (streaming mode) ━━━
+  andv   b0, p0, z1.b                     (Bitwise AND reduction) [32mWORKS[0m
+  orv    b0, p0, z1.b                     (Bitwise OR reduction) [32mWORKS[0m
+  eorv   b0, p0, z1.b                     (Bitwise XOR reduction) [32mWORKS[0m
+
+━━━ [6d] SVE Scalar Adjust (streaming mode) ━━━
+  addvl  x0, x0, #1                       (Add multiple of vector length) [32mWORKS[0m
+  addpl  x0, x0, #1                       (Add multiple of pred length) [32mWORKS[0m
+  rdsvl  x0, #1                           (Read streaming vector length) [32mWORKS[0m
+  addsvl x0, x0, #1                       (Add multiple of SVL) [32mWORKS[0m
+  addspl x0, x0, #1                       (Add multiple of streaming PL) [32mWORKS[0m
+
+━━━ [6e] SVE Inc/Dec (streaming mode) ━━━
+  incb   x0                               (Increment by byte count) [32mWORKS[0m
+  inch   x0                               (Increment by halfword count) [32mWORKS[0m
+  incw   x0                               (Increment by word count) [32mWORKS[0m
+  incd   x0                               (Increment by doubleword count) [32mWORKS[0m
+  decb   x0                               (Decrement by byte count) [32mWORKS[0m
+  dech   x0                               (Decrement by halfword count) [32mWORKS[0m
+  decw   x0                               (Decrement by word count) [32mWORKS[0m
+  decd   x0                               (Decrement by doubleword count) [32mWORKS[0m
+  inch   z0.h                             (Inc halfword count, vector) [32mWORKS[0m
+  incw   z0.s                             (Inc word count, vector) [32mWORKS[0m
+  incd   z0.d                             (Inc doubleword count, vector) [32mWORKS[0m
+  dech   z0.h                             (Dec halfword count, vector) [32mWORKS[0m
+  decw   z0.s                             (Dec word count, vector) [32mWORKS[0m
+  decd   z0.d                             (Dec doubleword count, vector) [32mWORKS[0m
+  sqincb x0                               (Sat inc by byte count, signed) [32mWORKS[0m
+  uqincb x0                               (Sat inc by byte count, unsign) [32mWORKS[0m
+  sqdecb x0                               (Sat dec by byte count, signed) [32mWORKS[0m
+  uqdecb x0                               (Sat dec by byte count, unsign) [32mWORKS[0m
+  sqincw x0                               (Sat inc by word count, signed) [32mWORKS[0m
+  uqincw x0                               (Sat inc by word count, unsign) [32mWORKS[0m
+  sqdecw x0                               (Sat dec by word count, signed) [32mWORKS[0m
+  uqdecw x0                               (Sat dec by word count, unsign) [32mWORKS[0m
+  incp   x0, p0.s                         (Inc by active pred count) [32mWORKS[0m
+  decp   x0, p0.s                         (Dec by active pred count) [32mWORKS[0m
+  sqincp x0, p0.s                         (Sat inc by pred count, signed) [32mWORKS[0m
+  uqincp x0, p0.s                         (Sat inc by pred count, unsign) [32mWORKS[0m
+  sqdecp x0, p0.s                         (Sat dec by pred count, signed) [32mWORKS[0m
+  uqdecp x0, p0.s                         (Sat dec by pred count, unsign) [32mWORKS[0m
+
+━━━ [6f] SVE Loads Additional (streaming mode) ━━━
+  ld1d   {z0.d}, p0/z, [x0]               (Load 64-bit elements) [32mWORKS[0m
+  ld1sb  {z0.s}, p0/z, [x0]               (Load sign-extended bytes) [32mWORKS[0m
+  ld1sh  {z0.s}, p0/z, [x0]               (Load sign-extended halfwords) [32mWORKS[0m
+  ld1sw  {z0.d}, p0/z, [x0]               (Load sign-extended words) [32mWORKS[0m
+  ld1rb  z0.s, p0/z, [x0]                 (Load+broadcast byte) [32mWORKS[0m
+  ld1rh  z0.s, p0/z, [x0]                 (Load+broadcast halfword) [32mWORKS[0m
+  ld1rw  z0.s, p0/z, [x0]                 (Load+broadcast word) [32mWORKS[0m
+  ld1rd  z0.d, p0/z, [x0]                 (Load+broadcast doubleword) [32mWORKS[0m
+  ld1rqb {z0.b}, p0/z, [x0]               (Load+replicate 128b, bytes) [32mWORKS[0m
+  ld1rqh {z0.h}, p0/z, [x0]               (Load+replicate 128b, halfs) [32mWORKS[0m
+  ld1rqw {z0.s}, p0/z, [x0]               (Load+replicate 128b, words) [32mWORKS[0m
+  ld1rqd {z0.d}, p0/z, [x0]               (Load+replicate 128b, dblwd) [32mWORKS[0m
+  ldnt1b {z0.b}, p0/z, [x0]               (Non-temporal load bytes) [32mWORKS[0m
+  ldnt1h {z0.h}, p0/z, [x0]               (Non-temporal load halfwords) [32mWORKS[0m
+  ldnt1w {z0.s}, p0/z, [x0]               (Non-temporal load words) [32mWORKS[0m
+  ldnt1d {z0.d}, p0/z, [x0]               (Non-temporal load dblwords) [32mWORKS[0m
+
+━━━ [6g] SVE Stores Additional (streaming mode) ━━━
+  st1d   {z0.d}, p0, [x0]                 (Store 64-bit elements) [32mWORKS[0m
+  stnt1b {z0.b}, p0, [x0]                 (Non-temporal store bytes) [32mWORKS[0m
+  stnt1h {z0.h}, p0, [x0]                 (Non-temporal store halfwords) [32mWORKS[0m
+  stnt1w {z0.s}, p0, [x0]                 (Non-temporal store words) [32mWORKS[0m
+  stnt1d {z0.d}, p0, [x0]                 (Non-temporal store dblwords) [32mWORKS[0m
+
+━━━ [6h] SVE Structure Loads (streaming mode) ━━━
+  ld2b   {z0-z1.b}, p0/z, [x0]            (Load 2-struct bytes) [32mWORKS[0m
+  ld2h   {z0-z1.h}, p0/z, [x0]            (Load 2-struct halfwords) [32mWORKS[0m
+  ld2w   {z0-z1.s}, p0/z, [x0]            (Load 2-struct words) [32mWORKS[0m
+  ld2d   {z0-z1.d}, p0/z, [x0]            (Load 2-struct doublewords) [32mWORKS[0m
+  ld3b   {z0-z2.b}, p0/z, [x0]            (Load 3-struct bytes) [32mWORKS[0m
+  ld3h   {z0-z2.h}, p0/z, [x0]            (Load 3-struct halfwords) [32mWORKS[0m
+  ld3w   {z0-z2.s}, p0/z, [x0]            (Load 3-struct words) [32mWORKS[0m
+  ld3d   {z0-z2.d}, p0/z, [x0]            (Load 3-struct doublewords) [32mWORKS[0m
+  ld4b   {z0-z3.b}, p0/z, [x0]            (Load 4-struct bytes) [32mWORKS[0m
+  ld4h   {z0-z3.h}, p0/z, [x0]            (Load 4-struct halfwords) [32mWORKS[0m
+  ld4w   {z0-z3.s}, p0/z, [x0]            (Load 4-struct words) [32mWORKS[0m
+  ld4d   {z0-z3.d}, p0/z, [x0]            (Load 4-struct doublewords) [32mWORKS[0m
+
+━━━ [6i] SVE Structure Stores (streaming mode) ━━━
+  st2b   {z0-z1.b}, p0, [x0]              (Store 2-struct bytes) [32mWORKS[0m
+  st2h   {z0-z1.h}, p0, [x0]              (Store 2-struct halfwords) [32mWORKS[0m
+  st2w   {z0-z1.s}, p0, [x0]              (Store 2-struct words) [32mWORKS[0m
+  st2d   {z0-z1.d}, p0, [x0]              (Store 2-struct doublewords) [32mWORKS[0m
+  st3b   {z0-z2.b}, p0, [x0]              (Store 3-struct bytes) [32mWORKS[0m
+  st3h   {z0-z2.h}, p0, [x0]              (Store 3-struct halfwords) [32mWORKS[0m
+  st3w   {z0-z2.s}, p0, [x0]              (Store 3-struct words) [32mWORKS[0m
+  st3d   {z0-z2.d}, p0, [x0]              (Store 3-struct doublewords) [32mWORKS[0m
+  st4b   {z0-z3.b}, p0, [x0]              (Store 4-struct bytes) [32mWORKS[0m
+  st4h   {z0-z3.h}, p0, [x0]              (Store 4-struct halfwords) [32mWORKS[0m
+  st4w   {z0-z3.s}, p0, [x0]              (Store 4-struct words) [32mWORKS[0m
+  st4d   {z0-z3.d}, p0, [x0]              (Store 4-struct doublewords) [32mWORKS[0m
+
+━━━ [6j] SVE First-Fault (streaming mode) ━━━
+  setffr                                  (Set first-fault register) [31mSIGILL[0m
+  rdffr  p0.b                             (Read first-fault register) [31mSIGILL[0m
+  wrffr  p0.b                             (Write first-fault register) [31mSIGILL[0m
+
+━━━ [6k] SVE Matrix Multiply (streaming mode) ━━━
+  smmla  z0.s, z1.b, z2.b                 (Signed 8b matrix mul accum) [31mSIGILL[0m
+  ummla  z0.s, z1.b, z2.b                 (Unsigned 8b matrix mul accum) [31mSIGILL[0m
+  usmmla z0.s, z1.b, z2.b                 (Mixed 8b matrix mul accum) [31mSIGILL[0m
+  sudot  z0.s, z1.b, z2.b[0]              (Signed-unsigned dot indexed) [32mWORKS[0m
+  usdot  z0.s, z1.b, z2.b[0]              (Unsigned-signed dot indexed) [32mWORKS[0m
+
+━━━ [6l] SVE Crypto Additional (streaming mode) ━━━
+  sm4ekey z0.s, z1.s, z2.s                (SM4 key expansion) [31mSIGILL[0m
+  rax1   z0.d, z1.d, z2.d                 (SHA3 rotate-and-XOR) [31mSIGILL[0m
+
+━━━ [6m] SVE Reciprocal Int (streaming mode) ━━━
+  urecpe z0.s, p0/m, z1.s                 (Unsigned reciprocal estimate) [32mWORKS[0m
+  ursqrte z0.s, p0/m, z1.s                (Unsigned recip sqrt estimate) [32mWORKS[0m
+
+━━━ [6n] SVE FP Clamp (streaming mode) ━━━
+  fclamp z0.s, z1.s, z2.s                 (FP clamp to range) [32mWORKS[0m
+
+━━━ [6o] SVE Mul Indexed (streaming mode) ━━━
+  mul    z0.s, z1.s, z2.s[0]              (Integer multiply indexed) [32mWORKS[0m
+  mla    z0.s, z1.s, z2.s[0]              (Integer mul-add indexed) [32mWORKS[0m
+  mls    z0.s, z1.s, z2.s[0]              (Integer mul-sub indexed) [32mWORKS[0m
+
+━━━ [6p] SVE Dot 2-Way (streaming mode) ━━━
+  sdot   z0.s, z1.h, z2.h                 (Signed 16b->32b dot product) [32mWORKS[0m
+  udot   z0.s, z1.h, z2.h                 (Unsigned 16b->32b dot product) [32mWORKS[0m
+
+━━━ [6q] SVE BFloat16 Additional (streaming mode) ━━━
+  bfdot  z0.s, z1.h, z2.h[0]              (BF16 dot product indexed) [32mWORKS[0m
+  bfmlalb z0.s, z1.h, z2.h                (BF16 widening mul-add low) [32mWORKS[0m
+  bfmlalt z0.s, z1.h, z2.h                (BF16 widening mul-add high) [32mWORKS[0m
+
+━━━ [6r] SME Additional (streaming+ZA mode) ━━━
+  fmopa  za0.s, p0/m, p0/m, z0.h, z1.h   (FP16->FP32)        [32mWORKS[0m
+  fmopa  za0.d, p0/m, p0/m, z0.d, z1.d   (FP64 mopa)         [32mWORKS[0m
+  fmops  za0.d, p0/m, p0/m, z0.d, z1.d   (FP64 mops)         [32mWORKS[0m
+  bfmops za0.s, p0/m, p0/m, z0.h, z1.h   (BF16 mops)         [32mWORKS[0m
+  sumops za0.s, p0/m, p0/m, z0.b, z1.b   (Signed*unsigned outer prod sub) [32mWORKS[0m
+  usmops za0.s, p0/m, p0/m, z0.b, z1.b   (Unsigned*signed outer prod sub) [32mWORKS[0m
+  smopa  za0.d, p0/m, p0/m, z0.h, z1.h   (I16->I64)          [32mWORKS[0m
+  umopa  za0.d, p0/m, p0/m, z0.h, z1.h   (I16->I64)          [32mWORKS[0m
+  addha  za0.d, p0/m, p0/m, z0.d          (ADDHA 64b)        [32mWORKS[0m
+  addva  za0.d, p0/m, p0/m, z0.d          (ADDVA 64b)        [32mWORKS[0m
+
+━━━ [6s] FP16 Streaming Arithmetic ━━━
+  fadd   z0.h, z1.h, z2.h                (FP16 vector add)   [32mWORKS[0m
+  fsub   z0.h, z1.h, z2.h                (FP16 vector sub)   [32mWORKS[0m
+  fmul   z0.h, z1.h, z2.h                (FP16 vector mul)   [32mWORKS[0m
+  fmla   z0.h, p0/m, z1.h, z2.h          (FP16 fused mul-add) [32mWORKS[0m
+  fmax   z0.h, p0/m, z0.h, z1.h          (FP16 maximum)      [32mWORKS[0m
+  fmin   z0.h, p0/m, z0.h, z1.h          (FP16 minimum)      [32mWORKS[0m
+  fcvt   z0.s, p0/m, z0.h                (FP16->FP32 convert) [32mWORKS[0m
+  fcvt   z0.h, p0/m, z0.s                (FP32->FP16 convert) [32mWORKS[0m
+  faddv  h0, p0, z0.h                    (FP16 add reduction) [32mWORKS[0m
+
+━━━ [6t] FP8 FMOPA Extensions (FEAT_SME_F8F16 / FEAT_SME_F8F32) ━━━
+  fmopa  za0.h, p0/m, p0/m, z0.b, z1.b  (FP8->FP16 FMOPA)    [31mSIGILL[0m
+  fmopa  za0.s, p0/m, p0/m, z0.b, z1.b  (FP8->FP32 FMOPA)    [31mSIGILL[0m
+
+━━━ [6u] Int16->Int32 Widening Outer Products ━━━
+  smopa  za0.s, p0/m, p0/m, z0.h, z1.h  (I16->I32 signed OPA) [32mWORKS[0m
+  umopa  za0.s, p0/m, p0/m, z0.h, z1.h  (I16->I32 unsigned OPA) [32mWORKS[0m
+
+━━━ [6v] SME2 Multi-Vector Dot Products ━━━
+  sdot   za.s[w8,0], {z0.b-z1.b}, z2.b  (2v x 1 sdot)        [32mWORKS[0m
+  udot   za.s[w8,0], {z0.b-z1.b}, z2.b  (2v x 1 udot)        [32mWORKS[0m
+  sdot   za.s[w8,0], {z0.b-z3.b}, z4.b  (4v x 1 sdot)        [32mWORKS[0m
+  udot   za.s[w8,0], {z0.b-z3.b}, z4.b  (4v x 1 udot)        [32mWORKS[0m
+  sdot   za.s[w8,0], {z0-z1}, {z2-z3}   (2v x 2v sdot)       [32mWORKS[0m
+  udot   za.s[w8,0], {z0-z1}, {z2-z3}   (2v x 2v udot)       [32mWORKS[0m
+  sdot   za.s[w8,0], {z0-z3}, {z4-z7}   (4v x 4v sdot)       [32mWORKS[0m
+  udot   za.s[w8,0], {z0-z3}, {z4-z7}   (4v x 4v udot)       [32mWORKS[0m
+
+━━━ [6w] Vertical Dot Products (SME2) ━━━
+  svdot  za.s[w8,0], {z0-z3}, z4.b[0]   (Signed vertical dot) [32mWORKS[0m
+  uvdot  za.s[w8,0], {z0-z3}, z4.b[0]   (Unsigned vertical dot) [32mWORKS[0m
+  fvdot  za.s[w8,0], {z0-z1}, z2.h[0]   (FP16 vertical dot)  [32mWORKS[0m
+  bfvdot za.s[w8,0], {z0-z1}, z2.h[0]   (BF16 vertical dot)  [32mWORKS[0m
+
+━━━ [6x] Format Conversion & Misc (SME2) ━━━
+  fcvtn  z0.h, {z0.s-z1.s}              (Narrow FP32->FP16)  [32mWORKS[0m
+  fclamp z0.h, z1.h, z2.h               (FP16 clamp)         [32mWORKS[0m
+  fcvt   z0.b, {z0.h-z1.h}              (FP16->FP8 convert)  [31mSIGILL[0m
+  luti4  {z0-z1}, zt0, z2[0]            (Multi-vec LUTI4)    [32mWORKS[0m
+
+━━━ [6z] SME2 Multi-Vector Loads/Stores ━━━
+  ld1b {z0.b-z1.b}, pn8/z, [x0]         (2-vec byte load)    [32mWORKS[0m
+  ld1b {z0.b-z3.b}, pn8/z, [x0]         (4-vec byte load)    [32mWORKS[0m
+  ld1w {z0.s-z1.s}, pn8/z, [x0]         (2-vec word load)    [32mWORKS[0m
+  ld1w {z0.s-z3.s}, pn8/z, [x0]         (4-vec word load)    [32mWORKS[0m
+  st1b {z0.b-z1.b}, pn8, [x0]           (2-vec byte store)   [32mWORKS[0m
+  st1b {z0.b-z3.b}, pn8, [x0]           (4-vec byte store)   [32mWORKS[0m
+  st1w {z0.s-z1.s}, pn8, [x0]           (2-vec word store)   [32mWORKS[0m
+  st1w {z0.s-z3.s}, pn8, [x0]           (4-vec word store)   [32mWORKS[0m
+
+━━━ [6aa] SME2 Multi-Vector Z-Register Arithmetic ━━━
+  sub {z0.b-z1.b}, {z0.b-z1.b}, z2.b    (2-vec sub byte)     [31mSIGILL[0m
+  sub {z0.b-z3.b}, {z0.b-z3.b}, z4.b    (4-vec sub byte)     [31mSIGILL[0m
+  sub {z0.s-z1.s}, {z0.s-z1.s}, z2.s    (2-vec sub word)     [31mSIGILL[0m
+  sub {z0.s-z3.s}, {z0.s-z3.s}, z4.s    (4-vec sub word)     [31mSIGILL[0m
+  add {z0.b-z1.b}, {z0.b-z1.b}, z2.b    (2-vec add byte)     [31mSIGILL[0m
+  add {z0.b-z3.b}, {z0.b-z3.b}, z4.b    (4-vec add byte)     [31mSIGILL[0m
+  add {z0.s-z1.s}, {z0.s-z1.s}, z2.s    (2-vec add word)     [31mSIGILL[0m
+  add {z0.s-z3.s}, {z0.s-z3.s}, z4.s    (4-vec add word)     [31mSIGILL[0m
+
+━━━ [6ab] SME2 Multi-Vector FP Arithmetic ━━━
+  fmul {z0.s-z1.s}, {z0.s-z1.s}, z2.s   (2-vec fmul)         [32mWORKS[0m
+  fmul {z0.s-z3.s}, {z0.s-z3.s}, z4.s   (4-vec fmul)         [32mWORKS[0m
+  fadd {z0.s-z1.s}, {z0.s-z1.s}, z2.s   (2-vec fadd)         [32mWORKS[0m
+  fadd {z0.s-z3.s}, {z0.s-z3.s}, z4.s   (4-vec fadd)         [32mWORKS[0m
+  fmla {z0.s-z1.s}, {z0.s-z1.s}, z2.s   (2-vec fmla z)       [32mWORKS[0m
+  fmla {z0.s-z3.s}, {z0.s-z3.s}, z4.s   (4-vec fmla z)       [32mWORKS[0m
+
+━━━ [6ac] SME2 Multi-Vector Conversions ━━━
+  scvtf {z0.s-z1.s}, {z0.s-z1.s}        (2-vec scvtf)        [31mSIGILL[0m
+  scvtf {z0.s-z3.s}, {z0.s-z3.s}        (4-vec scvtf)        [31mSIGILL[0m
+  ucvtf {z0.s-z1.s}, {z0.s-z1.s}        (2-vec ucvtf)        [31mSIGILL[0m
+  ucvtf {z0.s-z3.s}, {z0.s-z3.s}        (4-vec ucvtf)        [31mSIGILL[0m
+  sunpk {z0.h-z1.h}, z2.b               (2-vec sunpk b->h)   [32mWORKS[0m
+  sunpk {z0.s-z1.s}, z2.h               (2-vec sunpk h->s)   [32mWORKS[0m
+  sunpk {z0.h-z3.h}, {z2.b-z3.b}        (4-vec sunpk b->h)   [32mWORKS[0m
+  sunpk {z0.s-z3.s}, {z2.h-z3.h}        (4-vec sunpk h->s)   [32mWORKS[0m
+
+━━━ [6ad] SME2 Multi-Vector FMLA into ZA ━━━
+  fmla za.s[w8,0,VGx2], {z0.s-z1.s}, z2.s   (2v×1 fmla ZA)  [32mWORKS[0m
+  fmla za.s[w8,0,VGx4], {z0.s-z3.s}, z4.s   (4v×1 fmla ZA)  [32mWORKS[0m
+  fmla za.s[w8,0,VGx2], {z0.s-z1.s}, {z2.s-z3.s}  (2v×2v fmla) [32mWORKS[0m
+  fmla za.s[w8,0,VGx4], {z0.s-z3.s}, {z4.s-z7.s}  (4v×4v fmla) [32mWORKS[0m
+  fmls za.s[w8,0,VGx2], {z0.s-z1.s}, z2.s   (2v×1 fmls ZA)  [31mSIGILL[0m
+  fmls za.s[w8,0,VGx4], {z0.s-z3.s}, z4.s   (4v×1 fmls ZA)  [31mSIGILL[0m
+
+━━━ [6ae] SME2 SUB/ADD to ZA Array ━━━
+  sub za.s[w8,0,VGx2], {z0.s-z1.s}          (2v sub from ZA) [32mWORKS[0m
+  sub za.s[w8,0,VGx4], {z0.s-z3.s}          (4v sub from ZA) [32mWORKS[0m
+  add za.s[w8,0,VGx2], {z0.s-z1.s}          (2v add to ZA)   [32mWORKS[0m
+  add za.s[w8,0,VGx4], {z0.s-z3.s}          (4v add to ZA)   [32mWORKS[0m
+
+━━━ [6af] SME2 FSCALE Multi-Vector ━━━
+  fscale {z0.s-z1.s}, {z0.s-z1.s}, z2.s  (2-vec fscale)      [32mWORKS[0m
+  fscale {z0.s-z3.s}, {z0.s-z3.s}, z4.s  (4-vec fscale)      [32mWORKS[0m
+
+━━━ [6y] FPMR Register Access (FEAT_FPMR) ━━━
+  msr    FPMR, x0                        (Write FPMR)        [31mSIGILL[0m
+
+━━━ [4] Non-streaming SVE (expect SIGILL on M4) ━━━
+  add    z0.b, z1.b, z2.b  [NO SMSTART] (control)            [31mSIGILL[0m
+  mul    z0.b, z1.b, z2.b  [NO SMSTART] (control)            [31mSIGILL[0m
+  tbl    z0.b, {z1.b}, z2.b [NO SMSTART] (control)           [31mSIGILL[0m
+  sdot   z2.s, z0.b, z1.b  [NO SMSTART] (control)            [31mSIGILL[0m
+  eor    z0.d, z1.d, z2.d  [NO SMSTART] (control)            [31mSIGILL[0m
+
+━━━ [5] Unsupported Instructions (SIGILL) ━━━
+  frecpe z0.s, z1.s                      (FP32 recip)
+  frsqrte z0.s, z1.s                     (FP32 rsqrt)
+  fexpa  z0.s, z1.s                      (2^x approx)
+  ftmad  z0.s, z0.s, z1.s, #0           (trig coeff)
+  fadda  s0, p0, s0, z1.s               (ordered sum)
+  fmmla  z0.s, z1.s, z2.s               (FP32 matmul)
+  bfmmla z0.s, z1.h, z2.h               (BF16 matmul)
+  sqshrnb z0.b, z1.h, #1                 (sat shift narrow)
+  uqshrnb z0.b, z1.h, #1                 (sat shift narrow)
+  compact z0.s, p0, z1.s                 (compact)
+  rbit   z0.b, p0/m, z1.b               (reverse bits)
+  xar    z0.b, z0.b, z1.b, #1           (xor-and-rotate)
+  faddv  s0, p0, z1.s                    (FP32 sum)
+  match  p0.b, p0/z, z0.b, z1.b         (set match)
+  nmatch p0.b, p0/z, z0.b, z1.b         (no match)
+  aese   z0.b, z0.b, z1.b               (AES encrypt)
+  aesd   z0.b, z0.b, z1.b               (AES decrypt)
+  aesmc  z0.b, z0.b                      (AES mix col)
+  aesimc z0.b, z0.b                      (AES inv mix)
+  sm4e   z0.s, z0.s, z1.s               (SM4 encrypt)
+  histcnt z0.s, p0/z, z1.s, z2.s        (hist count)
+  histseg z0.b, z1.b, z2.b              (hist segment)
+  st1h   {z0.h}, p0, [x0]               (INT16 store)
+  dup    z0.s, #0                        (broadcast 0)
+  mov    z0.s, #1                        (immediate)
+  luti2  z0.b, zt0, z1[0]               (2-bit ZT0)
+  movt   z0, zt0[0]                      (read ZT0)
+  sdot   za.s[w8,0], z0.b, z1.b         (multi sdot)
+  udot   za.s[w8,0], z0.b, z1.b         (multi udot)
+  movaz  z0.s, za0h.s[w12, 0]           (move+zero)
+  ftsmul z0.s, z1.s, z2.s                 (FP trig select coefficient)
+  ftssel z0.s, z1.s, z2.s                 (FP trig start multiply)
+  bdep   z0.s, z1.s, z2.s                 (Bit deposit, scatter bits)
+  bext   z0.s, z1.s, z2.s                 (Bit extract, gather bits)
+  bgrp   z0.s, z1.s, z2.s                 (Bit group, partition bits)
+  setffr                                  (Set first-fault register)
+  rdffr  p0.b                             (Read first-fault register)
+  wrffr  p0.b                             (Write first-fault register)
+  smmla  z0.s, z1.b, z2.b                 (Signed 8b matrix mul accum)
+  ummla  z0.s, z1.b, z2.b                 (Unsigned 8b matrix mul accum)
+  usmmla z0.s, z1.b, z2.b                 (Mixed 8b matrix mul accum)
+  sm4ekey z0.s, z1.s, z2.s                (SM4 key expansion)
+  rax1   z0.d, z1.d, z2.d                 (SHA3 rotate-and-XOR)
+  fmopa  za0.h, p0/m, p0/m, z0.b, z1.b  (FP8->FP16 FMOPA)
+  fmopa  za0.s, p0/m, p0/m, z0.b, z1.b  (FP8->FP32 FMOPA)
+  fcvt   z0.b, {z0.h-z1.h}              (FP16->FP8 convert)
+  sub {z0.b-z1.b}, {z0.b-z1.b}, z2.b    (2-vec sub byte)
+  sub {z0.b-z3.b}, {z0.b-z3.b}, z4.b    (4-vec sub byte)
+  sub {z0.s-z1.s}, {z0.s-z1.s}, z2.s    (2-vec sub word)
+  sub {z0.s-z3.s}, {z0.s-z3.s}, z4.s    (4-vec sub word)
+  add {z0.b-z1.b}, {z0.b-z1.b}, z2.b    (2-vec add byte)
+  add {z0.b-z3.b}, {z0.b-z3.b}, z4.b    (4-vec add byte)
+  add {z0.s-z1.s}, {z0.s-z1.s}, z2.s    (2-vec add word)
+  add {z0.s-z3.s}, {z0.s-z3.s}, z4.s    (4-vec add word)
+  scvtf {z0.s-z1.s}, {z0.s-z1.s}        (2-vec scvtf)
+  scvtf {z0.s-z3.s}, {z0.s-z3.s}        (4-vec scvtf)
+  ucvtf {z0.s-z1.s}, {z0.s-z1.s}        (2-vec ucvtf)
+  ucvtf {z0.s-z3.s}, {z0.s-z3.s}        (4-vec ucvtf)
+  fmls za.s[w8,0,VGx2], {z0.s-z1.s}, z2.s   (2v×1 fmls ZA)
+  fmls za.s[w8,0,VGx4], {z0.s-z3.s}, z4.s   (4v×1 fmls ZA)
+  msr    FPMR, x0                        (Write FPMR)
+  add    z0.b, z1.b, z2.b  [NO SMSTART] (control)
+  mul    z0.b, z1.b, z2.b  [NO SMSTART] (control)
+  tbl    z0.b, {z1.b}, z2.b [NO SMSTART] (control)
+  sdot   z2.s, z0.b, z1.b  [NO SMSTART] (control)
+  eor    z0.d, z1.d, z2.d  [NO SMSTART] (control)
+
+━━━ [6S] Stress Testing — Throughput & Parallelism ━━━
+  --- Single-core instruction throughput (100M iters, 8x unroll) ---
+  FADD z.s (FP32 vector add)                     0.48 Gops/s  ( 0.210 s)
+  FMUL z.s (FP32 vector mul)                     0.48 Gops/s  ( 0.207 s)
+  FMLA z.s (FP32 fused mul-add)                  0.48 Gops/s  ( 0.207 s)
+  ADD z.b (INT8 vector add)                      3.87 Gops/s  ( 0.026 s)
+  MUL z.s (INT32 vector mul)                     0.48 Gops/s  ( 0.207 s)
+  SDOT z.s (INT8 dot product)                    0.48 Gops/s  ( 0.208 s)
+  FDOT z.s (FP16 2-way dot)                      0.48 Gops/s  ( 0.207 s)
+
+  --- Single-core matrix throughput (100M iters, 8x unroll) ---
+  FMOPA za0.s (FP32 outer product)               0.97 Gops/s  ( 0.103 s)
+  SMOPA za0.s (INT8 outer product)               0.97 Gops/s  ( 0.103 s)
+  BFMOPA za0.s (BF16 outer product)              0.48 Gops/s  ( 0.206 s)
+  FMOPA za0.d (FP64 outer product)               0.96 Gops/s  ( 0.104 s)
+
+  --- Multi-threaded FMOPA (FP32) scaling ---
+  FMOPA  1 threads:    1.982 TFLOPS  ( 0.003 s, 10000000 ops/thread)
+  FMOPA  2 threads:    1.949 TFLOPS  ( 0.005 s, 10000000 ops/thread)
+  FMOPA  4 threads:    2.419 TFLOPS  ( 0.008 s, 10000000 ops/thread)
+  FMOPA  6 threads:    2.980 TFLOPS  ( 0.010 s, 10000000 ops/thread)
+  FMOPA  8 threads:    3.672 TFLOPS  ( 0.011 s, 10000000 ops/thread)
+  FMOPA 12 threads:    3.376 TFLOPS  ( 0.018 s, 10000000 ops/thread)
+  FMOPA 16 threads:    3.735 TFLOPS  ( 0.022 s, 10000000 ops/thread)
+  FMOPA 20 threads:    3.533 TFLOPS  ( 0.029 s, 10000000 ops/thread)
+  FMOPA 24 threads:    3.570 TFLOPS  ( 0.034 s, 10000000 ops/thread)
+
+  Note: FMOPA TFLOPS = iterations * threads * 512ops / time
+  (Each FMOPA za.s: 16x16x2 = 512 FP32 ops)
+
+━━━ [7] Summary ━━━
+  Total probed:  652
+  Working:       586
+  SIGILL:        66
+
+=== Done ===
