@@ -105,7 +105,7 @@ This repository features a React-based UI single-file dashboard that dynamically
 To build and open the dashboard:
 
 ```bash
-./run_dashboard.sh
+./dashboard.sh
 ```
 
 This will automatically:

@@ -42,3 +42,6 @@ build/
 
 # debug information files
 *.dwo
+
+# Build script
+!run_build.shtry_stream
