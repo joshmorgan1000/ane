@@ -1,257 +1,151 @@
-/**
- * triple_threat.swift — The Ultimate ANE Test
+-/**
+ * triple_threat.swift — All-Combinations ANE Existence Test
  *
- * Runs all three simultaneously:
- *   1. GPU Metal INT8 peak ALU (char4 vectors)
- *   2. CPU SME SMOPA INT8 (assembly kernel)
- *   3. CoreML inference requesting .all compute units ("ANE")
- *
- * If ANE is separate hardware: GPU + CPU + ANE ≈ 37 + 8 + 38 = ~83 TOPS
- * If ANE is GPU+CPU rebranded: CoreML steals from GPU/CPU, total stays ~40 TOPS
+ * All concurrent workloads run as separate processes to avoid Swift data races.
+ * CoreML → coreml_worker, SME → sme_worker_gen, GPU → in-process Metal.
  *
  * Build:
- *   swiftc -O -o triple_threat triple_threat.swift -framework Metal -framework Foundation -framework CoreML
- * Run:
- *   ./triple_threat
+ *   swiftc -O -o triple_threat triple_threat.swift -framework Metal -framework Foundation
+ *   swiftc -O -o coreml_worker coreml_worker.swift -framework CoreML -framework Foundation
  */
 import Foundation
 import Metal
-import CoreML
+
+let GPU_RUNS = 100
+let GPU_THREADS = 1024 * 1024
+let GPU_INNER_ITERS: UInt32 = 10_000
+let GPU_OPS_PER_RUN = Double(GPU_THREADS) * Double(GPU_INNER_ITERS) * 32.0 * 2.0
+let SME_TOTAL_OPS = 4.0 * 100_000_000.0 * 8.0 * 2048.0
+let pwd = ProcessInfo.processInfo.environment["PWD"] ?? "."
 
 print("=================================================================")
-print(" THE TRIPLE THREAT — GPU + CPU SME + CoreML/ANE Simultaneous")
-print(" Apple M4 Max — Does the ANE actually exist?")
+print(" ALL-COMBINATIONS ANE TEST — Apple M4 Max")
 print("=================================================================\n")
 
-// ============================================================================
-// 1. GPU Setup (Metal INT8 peak)
-// ============================================================================
-guard let device = MTLCreateSystemDefaultDevice() else { fatalError("No Metal device") }
+// ── GPU Setup ────────────────────────────────────────────────────────────────
+let device = MTLCreateSystemDefaultDevice()!
 let queue = device.makeCommandQueue()!
-let shaderPath = (ProcessInfo.processInfo.environment["PWD"] ?? ".") + "/int8_peak.metal"
-let src = try! String(contentsOfFile: shaderPath, encoding: .utf8)
+let src = try! String(contentsOfFile: pwd + "/int8_peak.metal", encoding: .utf8)
 let lib = try! device.makeLibrary(source: src, options: nil)
 let pipe = try! device.makeComputePipelineState(function: lib.makeFunction(name: "int8_peak")!)
-
-let nThreads = 1024 * 1024
-let innerIters: UInt32 = 10_000
-let gpuOpsPerRun = Double(nThreads) * Double(innerIters) * 32.0 * 2.0
-let gpuRuns = 10
-
-let outBuf = device.makeBuffer(length: nThreads * 4, options: .storageModeShared)!
+let outBuf = device.makeBuffer(length: GPU_THREADS * 4, options: .storageModeShared)!
 let seedBuf = device.makeBuffer(length: 256 * 4, options: .storageModeShared)!
 let sp = seedBuf.contents().bindMemory(to: Int8.self, capacity: 1024)
 for i in 0..<1024 { sp[i] = Int8(truncatingIfNeeded: i &* 7 &+ 3) }
-var iters = innerIters
-
-// GPU warmup
-print("Warming up GPU...")
-for _ in 0..<2 {
-    let cb = queue.makeCommandBuffer()!
-    let enc = cb.makeComputeCommandEncoder()!
-    enc.setComputePipelineState(pipe)
-    enc.setBuffer(outBuf, offset: 0, index: 0)
-    enc.setBuffer(seedBuf, offset: 0, index: 1)
-    enc.setBytes(&iters, length: 4, index: 2)
-    enc.dispatchThreads(MTLSize(width: nThreads, height: 1, depth: 1),
-                       threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
-    enc.endEncoding()
-    cb.commit(); cb.waitUntilCompleted()
+var gpuIters = GPU_INNER_ITERS
+let tpg = MTLSize(width: 256, height: 1, depth: 1)
+let grid = MTLSize(width: GPU_THREADS, height: 1, depth: 1)
+for _ in 0..<3 {
+    let cb = queue.makeCommandBuffer()!; let enc = cb.makeComputeCommandEncoder()!
+    enc.setComputePipelineState(pipe); enc.setBuffer(outBuf, offset:0, index:0)
+    enc.setBuffer(seedBuf, offset:0, index:1); enc.setBytes(&gpuIters, length:4, index:2)
+    enc.dispatchThreads(grid, threadsPerThreadgroup: tpg)
+    enc.endEncoding(); cb.commit(); cb.waitUntilCompleted()
 }
 
-// ============================================================================
-// 2. CPU SME Setup (compile worker if needed)
-// ============================================================================
-let pwd = ProcessInfo.processInfo.environment["PWD"] ?? "."
-let smeWorkerPath = "\(pwd)/combined_sme_worker"
-// Should already exist from combined_int8 test
-
-// ============================================================================
-// 3. CoreML Setup — create a matmul model programmatically
-// ============================================================================
-print("Setting up CoreML model...")
-
-// Create a simple MLMultiArray matmul that CoreML will try to dispatch to "ANE"
-let matSize = 1024
-let coremlIters = 500
-
-// We'll use Accelerate's BNNS or just MLMultiArray operations
-// The key: request .all compute units so CoreML uses whatever "ANE" path it has
-let inputA = try! MLMultiArray(shape: [NSNumber(value: matSize), NSNumber(value: matSize)], dataType: .float16)
-let inputB = try! MLMultiArray(shape: [NSNumber(value: matSize), NSNumber(value: matSize)], dataType: .float16)
-
-// Fill with data
-for i in 0..<matSize*matSize {
-    inputA[i] = NSNumber(value: Float.random(in: -1...1))
-    inputB[i] = NSNumber(value: Float.random(in: -1...1))
-}
-
-// Use cblas for the "CoreML" workload — this goes through Accelerate which uses SME
-// Actually, let's load the real CoreML model if available
-var coremlModel: MLModel? = nil
-let modelPath = "\(pwd)/../ane_runner"  // Check nearby
-let modelFiles = [
-    "/Users/joshmorgan/AI/nebula/tests/ane_poc/dot_product_model.mlmodel",
-    "/Users/joshmorgan/AI/nebula/archive/ane_poc/dot_product_model.mlmodel",
-]
-
-for mf in modelFiles {
-    if FileManager.default.fileExists(atPath: mf) {
-        print("Found CoreML model: \(mf)")
-        let config = MLModelConfiguration()
-        config.computeUnits = .all  // Request "ANE" / all available compute
-        do {
-            let compiledURL = try MLModel.compileModel(at: URL(fileURLWithPath: mf))
-            coremlModel = try MLModel(contentsOf: compiledURL, configuration: config)
-            print("CoreML model loaded with .all compute units")
-        } catch {
-            print("CoreML load error: \(error)")
-        }
-        break
+func runGPU() -> (tops: Double, time: Double) {
+    var last: MTLCommandBuffer?
+    let t0 = CFAbsoluteTimeGetCurrent()
+    for _ in 0..<GPU_RUNS {
+        let cb = queue.makeCommandBuffer()!; let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(pipe); enc.setBuffer(outBuf, offset:0, index:0)
+        enc.setBuffer(seedBuf, offset:0, index:1); enc.setBytes(&gpuIters, length:4, index:2)
+        enc.dispatchThreads(grid, threadsPerThreadgroup: tpg)
+        enc.endEncoding(); cb.commit(); last = cb
     }
+    last!.waitUntilCompleted()
+    let t = CFAbsoluteTimeGetCurrent() - t0
+    return (Double(GPU_RUNS) * GPU_OPS_PER_RUN / t / 1e12, t)
 }
 
-// ============================================================================
-// PHASE 1: Baseline — GPU + CPU only (no CoreML)
-// ============================================================================
-print("\n--- Phase 1: GPU + CPU SME only (baseline) ---")
-
-let smeProc1 = Process()
-smeProc1.executableURL = URL(fileURLWithPath: smeWorkerPath)
-let smePipe1 = Pipe()
-smeProc1.standardOutput = smePipe1
-try! smeProc1.run()
-
-var lastCB: MTLCommandBuffer?
-let t1Start = CFAbsoluteTimeGetCurrent()
-for _ in 0..<gpuRuns {
-    let cb = queue.makeCommandBuffer()!
-    let enc = cb.makeComputeCommandEncoder()!
-    enc.setComputePipelineState(pipe)
-    enc.setBuffer(outBuf, offset: 0, index: 0)
-    enc.setBuffer(seedBuf, offset: 0, index: 1)
-    enc.setBytes(&iters, length: 4, index: 2)
-    enc.dispatchThreads(MTLSize(width: nThreads, height: 1, depth: 1),
-                       threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
-    enc.endEncoding()
-    cb.commit(); lastCB = cb
+// ── Subprocess helpers ───────────────────────────────────────────────────────
+func launchSME() -> Process {
+    let p = Process(); p.executableURL = URL(fileURLWithPath: "\(pwd)/sme_worker_gen")
+    let o = Pipe(); p.standardOutput = o; try! p.run(); return p
 }
-lastCB!.waitUntilCompleted()
-let gpuDone1 = CFAbsoluteTimeGetCurrent()
-smeProc1.waitUntilExit()
-let allDone1 = CFAbsoluteTimeGetCurrent()
-
-let smeOut1 = String(data: smePipe1.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!.trimmingCharacters(in: .whitespacesAndNewlines)
-let parts1 = smeOut1.split(separator: " ")
-let smeTime1 = Double(parts1[0])!
-let smeTops1 = Double(parts1[1])!
-let gpuWall1 = gpuDone1 - t1Start
-let gpuTops1 = Double(gpuRuns) * gpuOpsPerRun / gpuWall1 / 1e12
-let window1 = max(gpuWall1, smeTime1)
-let combined1 = (Double(gpuRuns) * gpuOpsPerRun + Double(4) * Double(20_000_000) * 8.0 * 2048.0) / window1 / 1e12
-
-print(String(format: "  GPU:      %.1f TOPS (%.3fs)", gpuTops1, gpuWall1))
-print(String(format: "  CPU SME:  %.1f TOPS (%.3fs)", smeTops1, smeTime1))
-print(String(format: "  Combined: %.1f TOPS", combined1))
-
-// ============================================================================
-// PHASE 2: GPU + CPU + CoreML "ANE" — all three at once
-// ============================================================================
-print("\n--- Phase 2: GPU + CPU SME + CoreML (ANE) — TRIPLE THREAT ---")
-
-// CoreML inference loop in a background thread
-var coremlInferences = 0
-var coremlRunning = true
-let coremlThread = Thread {
-    if let model = coremlModel {
-        // Run inference in a tight loop
-        let desc = model.modelDescription
-        guard let inputDesc = desc.inputDescriptionsByName.first else { return }
-        while coremlRunning {
-            do {
-                let provider = try MLDictionaryFeatureProvider(
-                    dictionary: [inputDesc.key: MLMultiArray(shape: [1, 1024], dataType: .float16)])
-                let _ = try model.prediction(from: provider)
-                coremlInferences += 1
-            } catch {
-                break
-            }
-        }
-    } else {
-        print("  (No CoreML model loaded — skipping ANE workload)")
-    }
+func collectSME(_ p: Process) -> (tops: Double, time: Double) {
+    p.waitUntilExit()
+    let pipe = p.standardOutput as! Pipe
+    let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
+        .trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+    return (Double(s[1])!, Double(s[0])!)
 }
-coremlThread.qualityOfService = .userInitiated
-coremlThread.start()
-
-// Small delay to let CoreML warm up
-Thread.sleep(forTimeInterval: 0.1)
-
-// Launch SME
-let smeProc2 = Process()
-smeProc2.executableURL = URL(fileURLWithPath: smeWorkerPath)
-let smePipe2 = Pipe()
-smeProc2.standardOutput = smePipe2
-try! smeProc2.run()
-
-// Launch GPU
-let t2Start = CFAbsoluteTimeGetCurrent()
-for _ in 0..<gpuRuns {
-    let cb = queue.makeCommandBuffer()!
-    let enc = cb.makeComputeCommandEncoder()!
-    enc.setComputePipelineState(pipe)
-    enc.setBuffer(outBuf, offset: 0, index: 0)
-    enc.setBuffer(seedBuf, offset: 0, index: 1)
-    enc.setBytes(&iters, length: 4, index: 2)
-    enc.dispatchThreads(MTLSize(width: nThreads, height: 1, depth: 1),
-                       threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
-    enc.endEncoding()
-    cb.commit(); lastCB = cb
+func launchCoreML(duration: Double) -> Process {
+    let p = Process(); p.executableURL = URL(fileURLWithPath: "\(pwd)/coreml_worker")
+    p.arguments = [String(duration)]
+    let o = Pipe(); p.standardOutput = o; try! p.run(); return p
 }
-lastCB!.waitUntilCompleted()
-let gpuDone2 = CFAbsoluteTimeGetCurrent()
-smeProc2.waitUntilExit()
-let allDone2 = CFAbsoluteTimeGetCurrent()
-
-// Stop CoreML
-coremlRunning = false
-Thread.sleep(forTimeInterval: 0.05)
-
-let smeOut2 = String(data: smePipe2.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!.trimmingCharacters(in: .whitespacesAndNewlines)
-let parts2 = smeOut2.split(separator: " ")
-let smeTime2 = Double(parts2[0])!
-let smeTops2 = Double(parts2[1])!
-let gpuWall2 = gpuDone2 - t2Start
-let gpuTops2 = Double(gpuRuns) * gpuOpsPerRun / gpuWall2 / 1e12
-let window2 = max(gpuWall2, smeTime2)
-let combined2 = (Double(gpuRuns) * gpuOpsPerRun + Double(4) * Double(20_000_000) * 8.0 * 2048.0) / window2 / 1e12
-
-let coremlLabel = coremlModel != nil ? "CoreML (ANE)" : "Accelerate (cblas_sgemm)"
-
-print(String(format: "  GPU:        %.1f TOPS (%.3fs)", gpuTops2, gpuWall2))
-print(String(format: "  CPU SME:    %.1f TOPS (%.3fs)", smeTops2, smeTime2))
-print(String(format: "  %@: %d inferences during test", coremlLabel, coremlInferences))
-print(String(format: "  Combined:   %.1f TOPS (GPU+SME)", combined2))
-
-// ============================================================================
-// Verdict
-// ============================================================================
-print("\n═══════════════════════════════════════════════════════════════")
-print(" RESULTS")
-print("═══════════════════════════════════════════════════════════════")
-print(String(format: " Phase 1 (GPU + CPU):            %.1f TOPS", combined1))
-print(String(format: " Phase 2 (GPU + CPU + CoreML):   %.1f TOPS", combined2))
-let delta = combined2 - combined1
-print(String(format: " Delta: %+.1f TOPS (within measurement noise)", delta))
-if coremlInferences == 0 {
-    print(" CoreML completed 0 inferences -- GPU+CPU fully saturated,")
-    print(" no additional compute unit available for CoreML.")
-    print(" Verdict: NO SEPARATE ANE. It's GPU + CPU SME.")
-} else if delta > 5.0 {
-    print(String(format: " CoreML completed %d inferences with +%.1f TOPS headroom", coremlInferences, delta))
-    print(" Verdict: SEPARATE ANE EXISTS (adds independent throughput)")
-} else {
-    print(String(format: " CoreML completed %d inferences but no throughput gain", coremlInferences))
-    print(" Verdict: NO SEPARATE ANE. CoreML competes for same hardware.")
+func collectCoreML(_ p: Process) -> (count: Int, rate: Double) {
+    p.waitUntilExit()
+    let pipe = p.standardOutput as! Pipe
+    let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
+        .trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+    return (Int(s[0])!, Double(s[1])!)
 }
-print("═══════════════════════════════════════════════════════════════")
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+struct R { let name: String; let gpu: Double?; let sme: Double?; let cmRate: Double?; let time: Double }
+var results: [R] = []
+
+print("[1/7] CoreML alone (3s sustained)...")
+let cm1p = launchCoreML(duration: 3.0); let cm1 = collectCoreML(cm1p)
+results.append(R(name: "CoreML alone", gpu: nil, sme: nil, cmRate: cm1.rate, time: 3.0))
+print(String(format: "  %d inferences, %.0f infer/s", cm1.count, cm1.rate))
+
+print("\n[2/7] GPU alone...")
+let g2 = runGPU()
+results.append(R(name: "GPU alone", gpu: g2.tops, sme: nil, cmRate: nil, time: g2.time))
+print(String(format: "  %.1f TOPS (%.2fs)", g2.tops, g2.time))
+
+print("\n[3/7] CPU SME alone...")
+let s3 = collectSME(launchSME())
+results.append(R(name: "SME alone", gpu: nil, sme: s3.tops, cmRate: nil, time: s3.time))
+print(String(format: "  %.1f TOPS (%.2fs)", s3.tops, s3.time))
+
+print("\n[4/7] GPU + CPU SME...")
+let s4p = launchSME(); let g4 = runGPU(); let s4 = collectSME(s4p)
+let w4 = max(g4.time, s4.time); let c4 = (Double(GPU_RUNS)*GPU_OPS_PER_RUN + SME_TOTAL_OPS)/w4/1e12
+results.append(R(name: "GPU + SME", gpu: g4.tops, sme: s4.tops, cmRate: nil, time: w4))
+print(String(format: "  GPU: %.1f  SME: %.1f  Combined: %.1f TOPS", g4.tops, s4.tops, c4))
+
+print("\n[5/7] CoreML + GPU...")
+let cm5p = launchCoreML(duration: 5.0); Thread.sleep(forTimeInterval: 0.5)  // Let CoreML warm
+let g5 = runGPU(); let cm5 = collectCoreML(cm5p)
+results.append(R(name: "CoreML + GPU", gpu: g5.tops, sme: nil, cmRate: cm5.rate, time: g5.time))
+print(String(format: "  GPU: %.1f TOPS  CoreML: %.0f infer/s", g5.tops, cm5.rate))
+
+print("\n[6/7] CoreML + CPU SME...")
+let cm6p = launchCoreML(duration: 5.0); Thread.sleep(forTimeInterval: 0.5)
+let s6p = launchSME(); let s6 = collectSME(s6p); let cm6 = collectCoreML(cm6p)
+results.append(R(name: "CoreML + SME", gpu: nil, sme: s6.tops, cmRate: cm6.rate, time: s6.time))
+print(String(format: "  SME: %.1f TOPS  CoreML: %.0f infer/s", s6.tops, cm6.rate))
+
+print("\n[7/7] GPU + CPU SME + CoreML (TRIPLE THREAT)...")
+let cm7p = launchCoreML(duration: 5.0); Thread.sleep(forTimeInterval: 0.5)
+let s7p = launchSME(); let g7 = runGPU(); let s7 = collectSME(s7p); let cm7 = collectCoreML(cm7p)
+let w7 = max(g7.time, s7.time); let c7 = (Double(GPU_RUNS)*GPU_OPS_PER_RUN + SME_TOTAL_OPS)/w7/1e12
+results.append(R(name: "ALL THREE", gpu: g7.tops, sme: s7.tops, cmRate: cm7.rate, time: w7))
+print(String(format: "  GPU: %.1f  SME: %.1f  CoreML: %.0f/s  Combined: %.1f TOPS", g7.tops, s7.tops, cm7.rate, c7))
+
+// ── Summary ──────────────────────────────────────────────────────────────────
+print("\n===================================================================")
+print(String(format: " %-20s  %8s  %8s  %10s  %7s", "Test", "GPU", "SME", "CoreML", "Time"))
+print(String(format: " %-20s  %8s  %8s  %10s  %7s", "", "TOPS", "TOPS", "infer/s", ""))
+print(" -------------------------------------------------------------------")
+for r in results {
+    let g = r.gpu != nil ? String(format: "%6.1f", r.gpu!) : "  --  "
+    let s = r.sme != nil ? String(format: "%6.1f", r.sme!) : "  --  "
+    let c = r.cmRate != nil ? String(format: "%8.0f", r.cmRate!) : "   --   "
+    print(String(format: " %-20s  %8s  %8s  %10s  %5.2fs", r.name, g, s, c, r.time))
+}
+print("===================================================================\n")
+let cmBase = results[0].cmRate!; let gpuBase = results[1].gpu!; let smeBase = results[2].sme!
+print(String(format: " CoreML baseline:      %.0f infer/s", cmBase))
+print(String(format: " CoreML + GPU:         %.0f infer/s  (%+.0f%%)", results[4].cmRate!, (results[4].cmRate!/cmBase - 1)*100))
+print(String(format: " CoreML + SME:         %.0f infer/s  (%+.0f%%)", results[5].cmRate!, (results[5].cmRate!/cmBase - 1)*100))
+print(String(format: " CoreML + ALL:         %.0f infer/s  (%+.0f%%)", results[6].cmRate!, (results[6].cmRate!/cmBase - 1)*100))
+print(String(format: " GPU baseline:         %.1f TOPS", gpuBase))
+print(String(format: " GPU + CoreML:         %.1f TOPS     (%+.0f%%)", results[4].gpu!, (results[4].gpu!/gpuBase - 1)*100))
+print(String(format: " SME baseline:         %.1f TOPS", smeBase))
+print(String(format: " SME + CoreML:         %.1f TOPS     (%+.0f%%)", results[5].sme!, (results[5].sme!/smeBase - 1)*100))
+print("\n===================================================================")

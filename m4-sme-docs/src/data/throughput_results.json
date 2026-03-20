@@ -1,0 +1,117 @@
+{
+  "timestamp": "2026-03-20T08:56:25.887Z",
+  "results": [
+    {
+      "test": "GPU alone",
+      "bnns": 0,
+      "gpu": 37.253,
+      "neon": 0,
+      "sme": 0,
+      "total": 37.253
+    },
+    {
+      "test": "SME alone (4t)",
+      "bnns": 0,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 8.657,
+      "total": 8.657
+    },
+    {
+      "test": "BNNS INT8 alone (4t)",
+      "bnns": 4.285,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 0,
+      "total": 4.285
+    },
+    {
+      "test": "NEON alone (7t)",
+      "bnns": 0,
+      "gpu": 0,
+      "neon": 0.878,
+      "sme": 0,
+      "total": 0.878
+    },
+    {
+      "test": "GPU + SME",
+      "bnns": 0,
+      "gpu": 37.29,
+      "neon": 0,
+      "sme": 8.613,
+      "total": 45.903
+    },
+    {
+      "test": "GPU + BNNS",
+      "bnns": 4.273,
+      "gpu": 37.243,
+      "neon": 0,
+      "sme": 0,
+      "total": 41.517
+    },
+    {
+      "test": "GPU + NEON",
+      "bnns": 0,
+      "gpu": 37.231,
+      "neon": 0.851,
+      "sme": 0,
+      "total": 38.081
+    },
+    {
+      "test": "SME + BNNS",
+      "bnns": 1.579,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 5.443,
+      "total": 7.022
+    },
+    {
+      "test": "SME + NEON",
+      "bnns": 0,
+      "gpu": 0,
+      "neon": 0.849,
+      "sme": 8.506,
+      "total": 9.355
+    },
+    {
+      "test": "BNNS + NEON",
+      "bnns": 4.204,
+      "gpu": 0,
+      "neon": 0.853,
+      "sme": 0,
+      "total": 5.056
+    },
+    {
+      "test": "GPU + SME + NEON",
+      "bnns": 0,
+      "gpu": 37.212,
+      "neon": 0.844,
+      "sme": 8.358,
+      "total": 46.414
+    },
+    {
+      "test": "GPU + BNNS + NEON",
+      "bnns": 3.744,
+      "gpu": 37.098,
+      "neon": 0.75,
+      "sme": 0,
+      "total": 41.593
+    },
+    {
+      "test": "GPU + SME + BNNS",
+      "bnns": 1.699,
+      "gpu": 37.249,
+      "neon": 0,
+      "sme": 5.141,
+      "total": 44.088
+    },
+    {
+      "test": "GPU + SME + BNNS + NEON",
+      "bnns": 1.427,
+      "gpu": 37.089,
+      "neon": 0.645,
+      "sme": 4.337,
+      "total": 43.498
+    }
+  ]
+}

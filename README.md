@@ -35,8 +35,9 @@ I did some performance benchmarks and found:
 - Many of the *basic arithmetic* operations for the `za` tile (`add`, `mul`, `sub`, etc) didn't work. Weird, but oh well, `fmla` works which does the same thing.
 - None of the `FP8` operations worked. Zero.
 - The `int8` and `uint8` MOPA operations *did* work.
+- The four isolated 4096-byte `za` arrays are quite a lot of CPU-integrated compute to keep hidden, without even a mention. I haven't seen any of thi in any of the marketing material I've read. Seems kind of strange that they wouldn't advertise this CPU unit that is 1/4 of the processing power that the GPU possesses, except without the shader dispatch tax. Unless....
 
-That's when I started to get deja-vu. I had heard of something that was some sort of fast 8-bit matrix multiply unit, wasn't really optimized for FP16, and had some weird quirks. That's when it hit me. The four, 4096-byte `za` matrix tiles I was playing with was in fact the hardware behind the Apple Neural Engine. Or at least a large part of it.
+That's when I started to get deja-vu. I had heard of something that was some sort of fast 8-bit matrix multiply unit, wasn't really optimized for FP16, and had some weird quirks. That's when it hit me. The four separate 4096-byte `za` matrix arrays I was driving across the CPU cores were functioning identically to Apple's software stacks that target the Neural Engine.
 
 ### Further Testing
 
@@ -78,24 +79,41 @@ The evidence:
 2. **GPU is fully independent.** No throughput drop when paired with any CPU workload — it's genuinely separate hardware.
 3. **Same limitations.** The "ANE" has the same data type support as SME (no FP8, same int8/bf16/fp32 types).
 4. **Direct SME access outperforms the "ANE" by 2x.** Raw `smopa` at 8.5 TOPS vs BNNS at 4.2 TOPS on the same hardware, same data types.
+5. **Same official documentation:** none.
 
 ## So What?
 
-For 32-bit floating point workloads, `cblas_sgemm` from Accelerate is likely your best bet — it uses `fmopa` under the hood and Apple is very good at scheduling it.
+For 32-bit floating point workloads, `cblas_sgemm` from Accelerate is likely your best bet — it uses `fmopa` under the hood and Apple is very good at scheduling it. Language models are familiar with it so you don't have to argue with them about how to use it properly.
 
-For 8-bit integer workloads, this repository's `smopa` kernels achieve over twice the throughput of Apple's own BNNS INT8 path. The `luti4` instructions can be used for efficient quantized inference or training. Working examples are included (though not fully implemented yet).
+For 8-bit integer workloads however, this repository's `smopa` kernels achieve over twice the throughput of Apple's own BNNS INT8 path. The `luti4` instructions can be used for efficient quantized inference or training. Working examples are included (though not fully implemented yet).
 
 ## Is this production ready?
 
-Absolutely not. Test and use at your own risk.
+Absolutely not. Test and use at your own risk. I will do my best to make them easier to use and to call, but since we are dealing directly with machine code that is undocumented I can't make any guarantees.
 
 ## Requirements
 
 - Apple M4 (or any ARM processor with SME2)
 - CMake 3.19+
 - C++20 compiler (Apple Clang recommended)
+- Node.js (20+) and npm (for generating the UI Dashboard)
 
-## Build
+## Building the Live Hardware UI Dashboard
+
+This repository features a React-based UI single-file dashboard that dynamically compiles and runs probing payloads to uncover your CPU's hardware matrix limits.
+
+To build and open the dashboard:
+
+```bash
+./run_dashboard.sh
+```
+
+This will automatically:
+1. Run local Apple Clang compilation and benchmark passes against your SME hardware.
+2. Build the Vite React application down into a single `dist/index.html` static file.
+3. Serve it directly in your browser.
+
+## Build the C++ Static Library
 
 ```bash
 mkdir build && cd build
@@ -157,9 +175,10 @@ target_link_libraries(my_app PRIVATE ane::ane)
 | LUT | `tbl_u8`, `luti4_u8`, `luti2_u8` |
 | Stochastic | `dropout_fp32`, `gaussian_noise_fp32` |
 
-## AI Assistants
+## AI Assistants & Contributors
 
-Thanks to Anthropic's Claude models (Haiku, Sonnet, and Opus 4.5 and 4.6 were all used at some point)
+Thanks to Anthropic's Claude models (Haiku, Sonnet, and Opus 4.5 and 4.6 were all used at some point).
+Thanks to Gemini 3.1 pro for assembling the React dashboards, benchmark integration, and keeping things clean!
 
 ## License
 
