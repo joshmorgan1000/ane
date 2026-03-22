@@ -10,9 +10,23 @@ CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9]' | head 
 if [ -z "$CHIP" ]; then
     CHIP="Silicon"
 fi
-echo "==============================================="
-echo "   Apple ${CHIP} SME/SME2 Hardware Dashboard"
-echo "==============================================="
+echo -e " "
+echo -e "\033[35m______________________________________________________\033[0m"
+echo -e "\033[36m     __     _____ ______  _______ __   _ _______\033[0m"
+echo -e "\033[36m     |        |   |_____] |_____| | \  | |______\033[0m"
+echo -e "\033[36m     |_____ __|__ |_____] |     | |  \_| |______\033[0m"
+echo -e "\033[35m──────────────────────────────────────────────────────\033[0m"
+echo -e "\033[33m       Apple Silicon $CHIP Hardware Dashboard\033[0m"
+echo " "
+echo "This script will take ~5 minutes to run since it performs live hardware probes"
+echo "and builds a standalone React dashboard package."
+echo "Are you sure you want to continue? (y/n)"
+read -n 1 -s answer
+echo " "
+if [[ "$answer" != "y" ]]; then
+    echo "Aborting dashboard build."
+    exit 0
+fi
 cd sme-ui
 # Ensure dependencies are installed
 if [ ! -d "node_modules" ]; then

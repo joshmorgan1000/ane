@@ -15,6 +15,7 @@
 # Released under the MIT License
 SKIP_OPS=0
 SKIP_TP=0
+SKIP_TITLE=0
 for arg in "$@"; do
     case "$arg" in
         ops) SKIP_OPS=1 ;;
@@ -39,16 +40,18 @@ cd "$(dirname "$0")"
 CYAN="\033[36m"
 NC="\033[0m"
 GREEN="\033[32m"
-echo -e " "
-echo -e "\033[35m______________________________________________________\033[0m"
-echo -e "\033[36m     __     _____ ______  _______ __   _ _______\033[0m"
-echo -e "\033[36m     |        |   |_____] |_____| | \  | |______\033[0m"
-echo -e "\033[36m     |_____ __|__ |_____] |     | |  \_| |______\033[0m"
-echo -e "\033[35m──────────────────────────────────────────────────────\033[0m"
-echo -e "\033[34m        SME Instructions and Registers Probe\033[0m"
-echo " "
-echo " To skip the instruction probes and run only throughput tests, use: $0 --skip ops"
-echo " To skip the throughput tests and run only instruction probes, use: $0 --skip tp"
+if [ $SKIP_TITLE -eq 0 ]; then
+    echo -e " "
+    echo -e "\033[35m______________________________________________________\033[0m"
+    echo -e "\033[36m     __     _____ ______  _______ __   _ _______\033[0m"
+    echo -e "\033[36m     |        |   |_____] |_____| | \  | |______\033[0m"
+    echo -e "\033[36m     |_____ __|__ |_____] |     | |  \_| |______\033[0m"
+    echo -e "\033[35m──────────────────────────────────────────────────────\033[0m"
+    echo -e "\033[34m        SME Instructions and Registers Probe\033[0m"
+    echo " "
+    echo " To skip the instruction probes and run only throughput tests, use: $0 --skip ops"
+    echo " To skip the throughput tests and run only instruction probes, use: $0 --skip tp"
+fi
 set +e
 cd "$(dirname "$0")"
 CC="clang"
@@ -276,14 +279,12 @@ for feat in hw.optional.arm.FEAT_SME hw.optional.arm.FEAT_SME2 \
     printf "  %-22s = %s\n" "$label" "$val"
 done
 if [ $SKIP_OPS -eq 0 ]; then
-
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9]' | head -n 1)
 # Some SME2.1 / B16B16 / F16F16 / LUT instructions are only on M5+
 EXPECT_M5="132"
 if [ "$CHIP" = "M5" ]; then
     EXPECT_M5=""
 fi
-
 section "Instruction Probes"
 echo -e "The [\033[32mSME\033[0m] tag indicates instructions that require SME/ZA state (streaming mode)."
 probe_one "abs z0.b, p0/m, z1.b (INT8 abs)"

@@ -123,7 +123,6 @@ try_compile(SME2_COMPILE_RESULT
     COMPILE_DEFINITIONS -march=armv9-a+sme2+sve2
     OUTPUT_VARIABLE SME2_COMPILE_OUTPUT
 )
-
 set(ANE_HAS_SME2 0)
 if(SME2_COMPILE_RESULT)
     try_run(SME2_RUN_RESULT SME2_RUN_COMPILE_RESULT
@@ -147,31 +146,18 @@ if(NOT ANE_HAS_SME2)
         "SME2 instruction probe failed on this system."
     )
 endif()
-
-# ── Assembly kernels ──
-file(GLOB ASM_SOURCES src/ane/asm/*.s)
-
-set_source_files_properties(${ASM_SOURCES}
-    PROPERTIES COMPILE_FLAGS "-march=armv9-a+sme2+sve2+sme-lutv2"
-)
-
-# ── Static library ──
-add_library(ane STATIC ${ASM_SOURCES})
-target_include_directories(ane PUBLIC
+# ── Header-only library (inline asm in ane.hpp) ──
+add_library(ane INTERFACE)
+target_include_directories(ane INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-
 # ── Install rules ──
 include(GNUInstallDirs)
-install(TARGETS ane
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
+install(TARGETS ane)
 install(DIRECTORY include/ane
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-
 # ── Tests ──
 add_subdirectory(tests)
 enable_testing()
