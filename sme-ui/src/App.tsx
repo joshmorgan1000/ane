@@ -3,6 +3,8 @@ import { Cpu, MemoryStick, Layers, Code2, AlertTriangle, MonitorPlay, Zap, Table
 import probeData from './data/probe_results.json';
 import throughputData from './data/throughput_results.json';
 
+const chip = probeData?.sysInfo?.chip || 'M-Series';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'registers' | 'operations' | 'memory' | 'probe' | 'throughput'>('overview');
 
@@ -64,30 +66,30 @@ function OverviewTab() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section>
-        <h2 className="text-2xl font-bold text-slate-100 mb-4">M4 Hardware Nuances</h2>
+        <h2 className="text-2xl font-bold text-slate-100 mb-4">{chip} Hardware Nuances</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card title="Undocumented Byte Tiles" icon={<Layers className="text-purple-400" />}>
             <p>
-              By default, ARM specifications suggest only <code>ZA0.B</code> exists for 8-bit operations. However, hardware probing confirms the Apple M4 silicon supports <strong className="text-purple-300">ZA1.B, ZA2.B, and ZA3.B</strong>.
+              By default, ARM specifications suggest only <code>ZA0.B</code> exists for 8-bit operations. However, hardware probing confirms the Apple {chip} silicon supports <strong className="text-purple-300">ZA1.B, ZA2.B, and ZA3.B</strong>.
               These can be accessed normally using encodings such as <code className="bg-slate-800 px-1 rounded">0xc0000000</code> to <code className="bg-slate-800 px-1 rounded">0xc0000003</code>.
             </p>
           </Card>
           
           <Card title="SME2 vs SME1 Parsing" icon={<Code2 className="text-emerald-400" />}>
             <p>
-              The M4 uses the newer SME2 instruction format structure. Standard 8-bit multiple-vector outer products (which LLMs often expect as <code>smopa</code>) use the <strong className="text-emerald-300">sdot</strong> instruction with multiple vectors instead. For instance, <code className="text-emerald-200 bg-slate-800 px-1 rounded">sdot za.s[w0, 0, vgx4], {'{z0.b-z3.b}'}, z4.b</code> essentially performs a 4-way SMOPA.
+              The {chip} uses the newer SME2 instruction format structure. Standard 8-bit multiple-vector outer products (which LLMs often expect as <code>smopa</code>) use the <strong className="text-emerald-300">sdot</strong> instruction with multiple vectors instead. For instance, <code className="text-emerald-200 bg-slate-800 px-1 rounded">sdot za.s[w0, 0, vgx4], {'{z0.b-z3.b}'}, z4.b</code> essentially performs a 4-way SMOPA.
             </p>
           </Card>
 
           <Card title="No FP8 Support" icon={<AlertTriangle className="text-amber-400" />}>
             <p>
-              Unlike some other modern architectures, the Apple <strong className="text-amber-300">M4 does not support FP8 natively</strong> (missing <code>FEAT_SME_F8</code>). All FP8 operations (such as <code>fmopa</code> expecting FP8) trap via <code>SIGILL</code> (Illegal Instruction). Only operations on Int8, BF16, FP16, FP32, and FP64 succeed.
+              Unlike some other modern architectures, the Apple <strong className="text-amber-300">{chip} does not support FP8 natively</strong> (missing <code>FEAT_SME_F8</code>). All FP8 operations (such as <code>fmopa</code> expecting FP8) trap via <code>SIGILL</code> (Illegal Instruction). Only operations on Int8, BF16, FP16, FP32, and FP64 succeed.
             </p>
           </Card>
 
           <Card title="8-Bit MOPA Verification" icon={<Zap className="text-cyan-400" />}>
             <p>
-              M4 fully implements complete combinations of signs via <strong className="text-cyan-300">smopa, umopa, sumopa, and usmopa</strong> across all standard 32-bit output tiles (<code>za0.s</code> - <code>za3.s</code>). 
+              {chip} fully implements complete combinations of signs via <strong className="text-cyan-300">smopa, umopa, sumopa, and usmopa</strong> across all standard 32-bit output tiles (<code>za0.s</code> - <code>za3.s</code>). 
             </p>
           </Card>
         </div>
@@ -96,7 +98,7 @@ function OverviewTab() {
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-slate-100 mb-4 flex items-center"><Cpu className="w-5 h-5 mr-2 text-indigo-400" /> LLM & Compiler Hallucinations</h3>
         <p className="text-slate-400 leading-relaxed">
-          Because Apple's architecture is historically undocumented regarding its exact internal matrix engine layouts, documentation bots and LLMs consistently claim 8-bit operations skip certain tiles, or that SME2 instructions do not exist. On the M4, they are highly present. For example, raw assembly requires exact binary <code>.inst</code> (hex payloads) inside <code>clang</code> because standard LLVM assemblers may aggressively reject valid matrix operands that the silicon fully supports.
+          Because Apple's architecture is historically undocumented regarding its exact internal matrix engine layouts, documentation bots and LLMs consistently claim 8-bit operations skip certain tiles, or that SME2 instructions do not exist. On the {chip}, they are highly present. For example, raw assembly requires exact binary <code>.inst</code> (hex payloads) inside <code>clang</code> because standard LLVM assemblers may aggressively reject valid matrix operands that the silicon fully supports.
         </p>
       </section>
     </div>
@@ -117,7 +119,7 @@ function RegistersTab() {
               There are <strong className="text-slate-200">32 distinct vector registers: Z0 through Z31</strong>.
             </p>
             <p>
-              On the Apple M4, the Vector Length (VL) is <strong className="text-cyan-300">128 bits (16 bytes)</strong> during standard SVE execution.
+              On the Apple {chip}, the Vector Length (VL) is <strong className="text-cyan-300">128 bits (16 bytes)</strong> during standard SVE execution.
             </p>
             <p>
               When the CPU enters Streaming SVE mode (SME), the Streaming Vector Length (SVL) is extended to <strong className="text-cyan-300">512 bits (64 bytes)</strong>, providing massive throughput per vector register.
@@ -155,7 +157,7 @@ function RegistersTab() {
                 <span className="font-semibold text-slate-300 font-mono">ZA0.B - ZA3.B</span>
                 <span className="text-right flex flex-col">
                   <span>4 Byte tiles (8-bit elements)</span>
-                  <span className="text-[10px] text-purple-400 uppercase tracking-widest mt-1 font-bold">M4 Undocumented Exclusives</span>
+                  <span className="text-[10px] text-purple-400 uppercase tracking-widest mt-1 font-bold">{chip} Undocumented Exclusives</span>
                 </span>
               </li>
               <li className="flex justify-between items-center border-b border-slate-800 pb-2">
@@ -183,7 +185,7 @@ function OperationsTab() {
     {
       name: "sdot za.s[w0, 0, vgx4], {z0.b-z3.b}, z4.b",
       type: "SME2 Matrix",
-      desc: "4-way Signed Dot Product (Outer Product). Performs 8-bit outer product multiplication between elements of vector sequences. It generates a 32-bit accumulative update into a specific ZA tile, treating the input vectors as matrices. This is how M4 natively handles multi-way outer products instead of legacy single-tile SMOPAs.",
+      desc: "4-way Signed Dot Product (Outer Product). Performs 8-bit outer product multiplication between elements of vector sequences. It generates a 32-bit accumulative update into a specific ZA tile, treating the input vectors as matrices. This is how {chip} natively handles multi-way outer products instead of legacy single-tile SMOPAs.",
       code: "0xa0812000 // Multi-vector SDOT"
     },
     {
@@ -195,7 +197,7 @@ function OperationsTab() {
     {
       name: "mova za1h.b[w0, 0], p0/m, z0.b",
       type: "Data Movement",
-      desc: "Move vector to ZA Array slice. Moves horizontal (h) or vertical (v) slices of data from Z registers directly into the specified ZA tile byte index. M4 natively supports undoc tiles za1-3.b.",
+      desc: "Move vector to ZA Array slice. Moves horizontal (h) or vertical (v) slices of data from Z registers directly into the specified ZA tile byte index. {chip} natively supports undoc tiles za1-3.b.",
       code: "0xc0000001 // Write to ZA1.B"
     },
     {
@@ -349,11 +351,12 @@ function ProbeDataTab() {
 
         <h3 className="text-lg font-bold text-slate-200 mb-4">Hardware Capability Matrix</h3>
         <div className="space-y-6">
-          {probeData.sections.map((sec, idx) => (
-            <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+          {probeData.sections.filter(sec => sec.items[0] && !(sec.items[0] as any).label).map((sec, idx) => (
+            <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden mt-6">
               <div className="bg-slate-900 px-5 py-3 border-b border-slate-800">
                 <h4 className="font-semibold text-slate-300 text-sm">{sec.name.replace(/\[.*\]/, "").trim()}</h4>
               </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800">
                 {sec.items.map((item: any, i: number) => {
                   const statusConfig = item.status === "ok"
@@ -386,13 +389,14 @@ function ProbeDataTab() {
               </div>
             </div>
           ))}
-        </div>
-      </section>
+        </div>      </section>
     </div>
   );
 }
 
 function ThroughputTab() {
+  const throughputSections = probeData.sections.filter(sec => sec.items[0] && !!(sec.items[0] as any).label);
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section>
@@ -401,22 +405,48 @@ function ThroughputTab() {
           Hardware Throughput Matrix (TOPS)
         </h2>
         <div className="text-slate-400 mb-6 bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <p>These benchmarks represent <strong>measured, sustained operations per second (TOPS)</strong> by deploying multi-threaded isolated kernels onto the M4 structure simultaneously. They prove that the SME unit operates entirely independently of the GPU and BNNS hardware, reinforcing the theory that it behaves similarly to the core Apple Neural Engine hardware matrix pathways.</p>
+          <p>These benchmarks represent <strong>measured, sustained operations per second (TOPS)</strong> by deploying multi-threaded isolated kernels onto the {chip} structure simultaneously. They prove that the SME unit operates entirely independently of the GPU and BNNS hardware, reinforcing the theory that it behaves similarly to the core Apple Neural Engine hardware matrix pathways.</p>
           <div className="mt-3 text-xs text-slate-500 font-mono flex items-center">
             <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse mr-2"></span>
-            Executed at: {new Date(throughputData.timestamp).toLocaleString()}
+            Executed at: {new Date(throughputSections.length > 0 ? probeData.timestamp : throughputData.timestamp).toLocaleString()}
           </div>
         </div>
+
+        {throughputSections.length > 0 && (
+          <div className="space-y-6 mt-8">
+            {throughputSections.map((sec, idx) => (
+              <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden mt-6">
+                <div className="bg-slate-900 px-5 py-3 border-b border-slate-800">
+                  <h4 className="font-semibold text-slate-300 text-sm">{sec.name.replace(/\[.*\]/, "").trim()}</h4>
+                </div>
+                <div className="divide-y divide-slate-800/60 bg-slate-950">
+                  {sec.items.map((item: any, i: number) => (
+                    <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-900/40 transition-colors">
+                      <div className="text-slate-200 font-mono text-sm mb-2 sm:mb-0 max-w-lg">{item.label}</div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-emerald-400 font-mono font-bold text-lg">{item.value.toFixed(3)} <span className="text-xs text-slate-500 font-normal ml-1">{item.unit}</span></div>
+                        <div className="text-slate-500 font-mono text-xs w-20 text-right">{item.timeInfo}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl mt-8">
+          <div className="px-5 py-4 border-b border-slate-800">
+             <h4 className="font-semibold text-slate-300">Subsystem Overlap Tests</h4>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs uppercase bg-slate-950 text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Concurrency Strategy</th>
-                  <th className="px-6 py-4 font-semibold text-right">BNNS</th>
-                  <th className="px-6 py-4 font-semibold text-right">GPU</th>
-                  <th className="px-6 py-4 font-semibold text-right">NEON</th>
+                  <th className="px-6 py-4 font-semibold">Test Configuration</th>
+                  <th className="px-6 py-4 font-semibold text-right">BNNS INT8</th>
+                  <th className="px-6 py-4 font-semibold text-right">GPU FP16</th>
+                  <th className="px-6 py-4 font-semibold text-right">NEON FP32</th>
                   <th className="px-6 py-4 font-semibold text-right">SME</th>
                   <th className="px-6 py-4 font-semibold text-right text-cyan-400">TOTAL TOPS</th>
                 </tr>
@@ -428,8 +458,8 @@ function ThroughputTab() {
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.bnns > 0 ? row.bnns.toFixed(3) : '--'}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.gpu > 0 ? row.gpu.toFixed(3) : '--'}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.neon > 0 ? row.neon.toFixed(3) : '--'}</td>
-                    <td className="px-6 py-4 text-right font-mono text-slate-400 font-semibold">{row.sme > 0 ? row.sme.toFixed(3) : '--'}</td>
-                    <td className="px-6 py-4 text-right font-mono text-cyan-400 font-bold">{row.total > 0 ? row.total.toFixed(3) : '--'}</td>
+                    <td className="px-6 py-4 text-right font-mono text-slate-400">{row.sme > 0 ? row.sme.toFixed(3) : '--'}</td>
+                    <td className="px-6 py-4 text-right font-mono text-cyan-400 font-bold">{row.total.toFixed(3)}</td>
                   </tr>
                 ))}
               </tbody>

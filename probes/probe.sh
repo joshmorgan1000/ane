@@ -276,6 +276,14 @@ for feat in hw.optional.arm.FEAT_SME hw.optional.arm.FEAT_SME2 \
     printf "  %-22s = %s\n" "$label" "$val"
 done
 if [ $SKIP_OPS -eq 0 ]; then
+
+CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9]' | head -n 1)
+# Some SME2.1 / B16B16 / F16F16 / LUT instructions are only on M5+
+EXPECT_M5="132"
+if [ "$CHIP" = "M5" ]; then
+    EXPECT_M5=""
+fi
+
 section "Instruction Probes"
 echo -e "The [\033[32mSME\033[0m] tag indicates instructions that require SME/ZA state (streaming mode)."
 probe_one "abs z0.b, p0/m, z1.b (INT8 abs)"
@@ -330,10 +338,10 @@ probe_one "bf1cvtl {z0.h-z1.h}, z2.b (FP8->BF16 deintrl)" sme 132
 probe_one "bf2cvt {z0.h-z1.h}, z2.b (FP8->BF16 in-order)" sme 132
 probe_one "bf2cvt {z0.h-z1.h}, z2.b (FP8->BF16 bf2cvt)" sme 132
 probe_one "bf2cvtl {z0.h-z1.h}, z2.b (FP8->BF16 deintrl2)" sme 132
-probe_one "bfadd za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfadd to ZA)"
-probe_one "bfadd za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfadd to ZA)"
-probe_one "bfclamp {z0.h-z1.h}, z2.h, z3.h (2v bfclamp)"
-probe_one "bfclamp {z0.h-z3.h}, z2.h, z3.h (4v bfclamp)"
+probe_one "bfadd za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfadd to ZA)" "sme" "$EXPECT_M5"
+probe_one "bfadd za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfadd to ZA)" "sme" "$EXPECT_M5"
+probe_one "bfclamp {z0.h-z1.h}, z2.h, z3.h (2v bfclamp)" "sme" "$EXPECT_M5"
+probe_one "bfclamp {z0.h-z3.h}, z2.h, z3.h (4v bfclamp)" "sme" "$EXPECT_M5"
 probe_one "bfcvt z0.h, p0/m, z1.s (FP32->BF16)"
 probe_one "bfcvt z0.b, {z0.h-z1.h} (BF16->FP8 cvt)" sme 132
 probe_one "bfcvt z0.h, {z0.s-z1.s} (2v FP32->BF16)"
@@ -347,28 +355,28 @@ probe_one "bfdot za.s[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfdot ZA)"
 probe_one "bfdot za.s[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfdot ZA)"
 probe_one "bfdot za.s[w8,0,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfdot idx)"
 probe_one "bfdot za.s[w8,0,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfdot idx)"
-probe_one "bfmax {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmax single)"
-probe_one "bfmax {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmax single)"
-probe_one "bfmax {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmax)"
-probe_one "bfmax {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmax)"
-probe_one "bfmaxnm {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmaxnm single)"
-probe_one "bfmaxnm {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmaxnm single)"
-probe_one "bfmaxnm {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmaxnm)"
-probe_one "bfmaxnm {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmaxnm)"
-probe_one "bfmin {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmin single)"
-probe_one "bfmin {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmin single)"
-probe_one "bfmin {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmin)"
-probe_one "bfmin {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmin)"
-probe_one "bfminnm {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfminnm single)"
-probe_one "bfminnm {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfminnm single)"
-probe_one "bfminnm {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfminnm)"
-probe_one "bfminnm {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfminnm)"
-probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmla ZA)"
-probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmla ZA)"
-probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmla ZA)"
-probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmla ZA)"
-probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmla idx)"
-probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmla idx)"
+probe_one "bfmax {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmax single)" "sme" "$EXPECT_M5"
+probe_one "bfmax {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmax single)" "sme" "$EXPECT_M5"
+probe_one "bfmax {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmax)" "sme" "$EXPECT_M5"
+probe_one "bfmax {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmax)" "sme" "$EXPECT_M5"
+probe_one "bfmaxnm {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmaxnm single)" "sme" "$EXPECT_M5"
+probe_one "bfmaxnm {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmaxnm single)" "sme" "$EXPECT_M5"
+probe_one "bfmaxnm {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmaxnm)" "sme" "$EXPECT_M5"
+probe_one "bfmaxnm {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmaxnm)" "sme" "$EXPECT_M5"
+probe_one "bfmin {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfmin single)" "sme" "$EXPECT_M5"
+probe_one "bfmin {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfmin single)" "sme" "$EXPECT_M5"
+probe_one "bfmin {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfmin)" "sme" "$EXPECT_M5"
+probe_one "bfmin {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfmin)" "sme" "$EXPECT_M5"
+probe_one "bfminnm {z0.h-z1.h}, {z0.h-z1.h}, z2.h (2v bfminnm single)" "sme" "$EXPECT_M5"
+probe_one "bfminnm {z0.h-z3.h}, {z0.h-z3.h}, z4.h (4v bfminnm single)" "sme" "$EXPECT_M5"
+probe_one "bfminnm {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h} (2v bfminnm)" "sme" "$EXPECT_M5"
+probe_one "bfminnm {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h} (4v bfminnm)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmla ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmla ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmla ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmla ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmla idx)" "sme" "$EXPECT_M5"
+probe_one "bfmla za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmla idx)" "sme" "$EXPECT_M5"
 probe_one "bfmlal za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmlal ZA)"
 probe_one "bfmlal za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmlal ZA)"
 probe_one "bfmlal za.s[w8,0:1,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmlal ZA)"
@@ -377,12 +385,12 @@ probe_one "bfmlal za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmlal idx)"
 probe_one "bfmlal za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmlal idx)"
 probe_one "bfmlalb z0.s, z1.h, z2.h (BF16 widening mul-add low)"
 probe_one "bfmlalt z0.s, z1.h, z2.h (BF16 widening mul-add high)"
-probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmls ZA)"
-probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmls ZA)"
-probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmls ZA)"
-probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmls ZA)"
-probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmls idx)"
-probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmls idx)"
+probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmls ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmls ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmls ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmls ZA)" "sme" "$EXPECT_M5"
+probe_one "bfmls za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmls idx)" "sme" "$EXPECT_M5"
+probe_one "bfmls za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmls idx)" "sme" "$EXPECT_M5"
 probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h (2vx1 bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h (4vx1 bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmlsl ZA)"
@@ -391,11 +399,11 @@ probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmlsl idx)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmlsl idx)"
 probe_one "bfmmla z0.s, z1.h, z2.h (BF16 matmul)" sme 132
 probe_one "bfmopa za0.s, p0/m, p0/m, z0.h, z1.h (BF16 outer)"
-probe_one "bfmopa za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mopa)"
+probe_one "bfmopa za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mopa)" "sme" "$EXPECT_M5"
 probe_one "bfmops za0.s, p0/m, p0/m, z0.h, z1.h (BF16 mops)"
-probe_one "bfmops za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mops)"
-probe_one "bfsub za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfsub from ZA)"
-probe_one "bfsub za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfsub from ZA)"
+probe_one "bfmops za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mops)" "sme" "$EXPECT_M5"
+probe_one "bfsub za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfsub from ZA)" "sme" "$EXPECT_M5"
+probe_one "bfsub za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfsub from ZA)" "sme" "$EXPECT_M5"
 probe_one "bfvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (BF16 vertical dot)"
 probe_one "bgrp z0.s, z1.s, z2.s (Bit group, partition bits)" sme 132
 probe_one "bic z0.d, z1.d, z2.d (AND NOT)"
@@ -491,9 +499,9 @@ probe_one "fcvt z0.d, p0/m, z1.s (FP32->FP64)"
 probe_one "fcvt z0.s, p0/m, z0.h (FP16->FP32 convert)"
 probe_one "fcvt z0.h, p0/m, z0.s (FP32->FP16 convert)"
 probe_one "fcvt z0.b, {z0.h-z1.h} (FP16->FP8 convert)" sme 132
-probe_one "fcvt {z0.s-z1.s}, z2.h (FP16->FP32 wid 2v)"
+probe_one "fcvt {z0.s-z1.s}, z2.h (FP16->FP32 wid 2v)" "sme" "$EXPECT_M5"
 probe_one "fcvt z0.b, {z0.s-z3.s} (FP32->FP8 4reg)" sme 132
-probe_one "fcvtl {z0.s-z1.s}, z2.h (FP16->FP32 deintrl)"
+probe_one "fcvtl {z0.s-z1.s}, z2.h (FP16->FP32 deintrl)" "sme" "$EXPECT_M5"
 probe_one "fcvtn z0.h, {z0.s-z1.s} (Narrow FP32->FP16)"
 probe_one "fcvtn z0.b, {z0.s-z3.s} (FP32->FP8 intrlv)" sme 132
 probe_one "fcvtzs z0.s, p0/m, z1.s (FP32->INT32)"
@@ -791,11 +799,11 @@ probe_one "mova za0h.s[w12, 0:1], {z0.s-z1.s} (2v vec->arr)"
 probe_one "mova za0h.s[w12, 0:3], {z0.s-z3.s} (4v vec->arr)"
 probe_one "mova za0h.s[w12, 0:1], {z0.s-z1.s} (2v vec->tile)"
 probe_one "mova za0h.s[w12, 0:3], {z0.s-z3.s} (4v vec->tile)"
-probe_one "movaz z0.s, za0h.s[w12, 0] (move+zero)"
-probe_one "movaz {z0.s-z1.s}, za0h.s[w12, 0:1] (2v movaz arr->vec)"
-probe_one "movaz {z0.s-z3.s}, za0h.s[w12, 0:3] (4v movaz arr->vec)"
-probe_one "movaz {z0.s-z1.s}, za0h.s[w12, 0:1] (2v movaz tile->vec)"
-probe_one "movaz {z0.s-z3.s}, za0h.s[w12, 0:3] (4v movaz tile->vec)"
+probe_one "movaz z0.s, za0h.s[w12, 0] (move+zero)" "sme" "$EXPECT_M5"
+probe_one "movaz {z0.s-z1.s}, za0h.s[w12, 0:1] (2v movaz arr->vec)" "sme" "$EXPECT_M5"
+probe_one "movaz {z0.s-z3.s}, za0h.s[w12, 0:3] (4v movaz arr->vec)" "sme" "$EXPECT_M5"
+probe_one "movaz {z0.s-z1.s}, za0h.s[w12, 0:1] (2v movaz tile->vec)" "sme" "$EXPECT_M5"
+probe_one "movaz {z0.s-z3.s}, za0h.s[w12, 0:3] (4v movaz tile->vec)" "sme" "$EXPECT_M5"
 probe_one "movprfx z0.s, p0/m, z1.s
       add z0.s, p0/m, z0.s, z1.s (move prefix)"
 probe_one "movt x0, zt0[0] (read ZT0)" sme 132
@@ -1102,9 +1110,9 @@ probe_one "sxth z0.s, p0/m, z1.s (Sign-extend halfword)"
 probe_one "sxtw z0.d, p0/m, z1.d (Sign-extend word)"
 probe_one "tbl z0.b, {z1.b}, z2.b (64-byte lookup)"
 probe_one "tbl z0.b, {z1.b}, z2.b (NO SMSTART control)" nosve 132
-probe_one "tblq z0.b, {z1.b}, z2.b (per-128 lookup)"
+probe_one "tblq z0.b, {z1.b}, z2.b (per-128 lookup)" "sme" "$EXPECT_M5"
 probe_one "tbx z0.b, z1.b, z2.b (merge lookup)"
-probe_one "tbxq z0.b, z1.b, z2.b (per-128 merge)"
+probe_one "tbxq z0.b, z1.b, z2.b (per-128 merge)" "sme" "$EXPECT_M5"
 probe_one "trn1 z0.b, z1.b, z2.b (transpose lo)"
 probe_one "trn1 p0.s, p0.s, p1.s (Transpose predicates, low)"
 probe_one "trn2 z0.b, z1.b, z2.b (transpose hi)"
@@ -1285,8 +1293,8 @@ probe_one "whilewr p0.s, x0, x1 (Pred while write-after-read)"
 probe_one "wrffr p0.b (Write first-fault register)" sme 132
 probe_one "xar z0.b, z0.b, z1.b, #1 (xor-and-rotate)"
 probe_one "zero {za} (zero ZA)" sme
-probe_one "zero za.d[w8, 0:1] (double-vec zero)" sme
-probe_one "zero za.d[w8, 0:3] (quad-vec zero)" sme
+probe_one "zero za.d[w8, 0:1] (double-vec zero)" "sme" "$EXPECT_M5" sme
+probe_one "zero za.d[w8, 0:3] (quad-vec zero)" "sme" "$EXPECT_M5" sme
 probe_one "zero {zt0} (zero ZT0)" sme
 probe_one "zip {z0.s-z1.s}, z0.s, z1.s (2v zip)"
 probe_one "zip {z0.s-z3.s}, {z0.s-z3.s} (4v zip)"
@@ -1294,6 +1302,7 @@ probe_one "zip1 z0.b, z1.b, z2.b (interleave lo)"
 probe_one "zip1 p0.s, p0.s, p1.s (Interleave predicates, low)"
 probe_one "zip2 z0.b, z1.b, z2.b (interleave hi)"
 probe_one "zip2 p0.s, p0.s, p1.s (Interleave predicates, high)"
+fi # end SKIP_OPS
 # ===========================================================================================================
 # [6S] STRESS TESTING — Throughput & Parallelism
 # ===========================================================================================================
@@ -1425,7 +1434,6 @@ EOF
     fi
     "$PROBE_BIN" 2>/dev/null || printf "  FMOPA %2d threads: FAILED\n" "$threads"
 }
-fi # end SKIP_OPS
 if [ $SKIP_TP -eq 0 ]; then
 section "Single-core instruction throughput (1B iters, 8x unroll)"
 stress_throughput "FADD z.s (FP32 vector add)"       "fadd z0.s, z1.s, z2.s"
