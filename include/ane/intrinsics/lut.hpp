@@ -10,7 +10,7 @@
 #include <string>
 #include <cstdlib>
 #include <initializer_list>
-#include <ane/extern/asm.hpp>
+#include "../extern/asm.hpp"
 #include <simd/simd.h>
 
 namespace ane {
@@ -21,13 +21,15 @@ namespace ane {
  * LUTI2 and LUTI4 instructions easier to work with.
  */
 struct alignas(64) lookup_table {
-    /// @brief The raw data of the lookup table, aligned to 64 bytes for optimal access (32-bits per entry)
+    /// @brief A static constant representing a lookup table initialized with all zeros
+    static constexpr simd_uchar64 zeros = simd_uchar64(0);
+    /// @brief The raw data of the lookup table, aligned to 64 bytes for optimal access
     simd_uchar64 data;
     /** --------------------------------------------------------------------------------- Default Constructor
      * @brief Default constructor initializes the lookup table with zeros
      */
     lookup_table() {
-        std::memset(data, 0, sizeof(data));
+        data = zeros;
     }
     /** --------------------------------------------------------------------------------- Set 8-bit Value
      * @brief Sets the value at the specified index in the lookup table for uint8_t
@@ -53,17 +55,16 @@ struct alignas(64) lookup_table {
      * @param v The uint16_t value to set at the specified index
      */
     void set_u16(size_t i, uint16_t v) noexcept {
-        std::memcpy(&data[i << 2], &v, 2);
+        simd_ushort32* data_uint16_t = reinterpret_cast<simd_ushort32*>(&data);
+        data_uint16_t[i] = v;
     }
-    /** --------------------------------------------------------------------------------- Get 16-bit Unsigned Integer Value
-     * @brief Gets the value at the specified index in the lookup table as a uint16_t.
-     * @param i The index of the entry to get (0-15)
-     * @return The uint16_t value at the specified index in the lookup table
-     */
-    uint16_t get_u16(size_t i) const noexcept {
-        uint16_t v;
-        std::memcpy(&v, &data[i << 2], 2);
-        return v;
+    uint16_t& get_u16(size_t i) noexcept {
+        uint16_t* data_ = reinterpret_cast<uint16_t*>(&data);
+        return data_[i];
+    }
+    const uint16_t& get_u16(size_t i) const noexcept {
+        const uint16_t* data_ = reinterpret_cast<const uint16_t*>(&data);
+        return data_[i];
     }
     /** --------------------------------------------------------------------------------- Set 32-bit Unsigned Integer Value
      * @brief Sets the value at the specified index in the lookup table for uint32_t.
@@ -200,26 +201,26 @@ struct alignas(64) lookup_table {
      * @return A pointer to the raw data of the lookup table
      */
     const uint8_t* ptr() const {
-        return data;
+        return reinterpret_cast<const uint8_t*>(&data);
     }
     /** --------------------------------------------------------------------------------- Pointer Access
      * @brief Provides pointer access to the raw data of the lookup table
      * @return A pointer to the raw data of the lookup table
      */
     uint8_t* ptr() {
-        return data;
+        return reinterpret_cast<uint8_t*>(&data);
     }
     /** --------------------------------------------------------------------------------- Implicit Conversion Operator
      * @brief Implicit conversion operator to const uint8_t pointer (const version)
      */
     operator const uint8_t*() const {
-        return data;
+        return reinterpret_cast<const uint8_t*>(&data);
     }
     /** --------------------------------------------------------------------------------- Implicit Conversion Operator
      * @brief Implicit conversion operator to uint8_t pointer
      */
     operator uint8_t*() {
-        return data;
+        return reinterpret_cast<uint8_t*>(&data);
     }
 };
 /** --------------------------------------------------------------------------------------------------------- nibble_pack

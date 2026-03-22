@@ -10,10 +10,11 @@
 #include <stdexcept>
 #include <string>
 #include <cstdlib>
-#include <ane/extern/asm.hpp>
-// We use simd.h because their 64-byte aligned vector types line up with the z[n] register sizes exactly
-// (they likely even use the z[n] registers under the hood, but we'd like to expose more)
+#include "../extern/asm.hpp"
+#include "common.hpp"
+#include "lut.hpp"
 #include <simd/simd.h>
+#include <vector>
 
 namespace ane {
 /** ------------------------------------------------------------------------------------------ z_stream 
@@ -23,10 +24,11 @@ namespace ane {
  * for streaming data into the z[n] registers, and provides a convenient interface for working
  * with streams of vectors of various types and various operations.
  */
+template<SIMDVectorEquivalent T>
 class z_stream {
 private:
     /// @brief Type-erased pointer to allocate the aligned memory for the z_stream
-    void* data_ = nullptr;
+    T* data_ = nullptr;
     /// @brief Number of zvecs (512-bit vectors) allocated in the stream
     size_t num_zvecs_ = 0;
     /** --------------------------------------------------------------------------------- Aligned Memory Allocation
@@ -40,7 +42,7 @@ private:
         size <<= 6; // Multiply by 64 to get the total size in bytes
         // Align to the size of the full za.b tile (4096 bytes) to ensure optimal
         // access patterns for streaming
-        data_ = std::aligned_alloc(4096, size);
+        data_ = static_cast<simd_uchar64*>(std::aligned_alloc(4096, size));
         if (!data_) [[unlikely]] {
             std::string error_msg = "Failed to allocate memory for z_stream:"
                     " requested size " + std::to_string(size) + " bytes";
@@ -48,6 +50,32 @@ private:
         }
     }
 public:
+    z_stream(size_t num_zvecs) : num_zvecs_(num_zvecs) {
+        alignedAlloc(num_zvecs_);
+    }
+    ~z_stream() {
+        if (data_) {
+            std::free(data_);
+        }
+    }
+    z_stream(const z_stream&) = delete;
+    z_stream& operator=(const z_stream&) = delete;
+    z_stream(z_stream&& other) noexcept : data_(other.data_), num_zvecs_(other.num_zvecs_) {
+        other.data_ = nullptr;
+        other.num_zvecs_ = 0;
+    }
+    z_stream& operator=(z_stream&& other) noexcept {
+        if (this != &other) {
+            if (data_) {
+                std::free(data_);
+            }
+            data_ = other.data_;
+            num_zvecs_ = other.num_zvecs_;
+            other.data_ = nullptr;
+            other.num_zvecs_ = 0;
+        }
+        return *this;
+    }
 };
 } // namespace ane
 #endif // __aarch64__ && __APPLE__

@@ -13,7 +13,7 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 text-cyan-400">
               <Zap className="w-8 h-8" />
-              <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Apple M4 SME Architecture Docs</h1>
+              <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Apple Silicon SME Architecture Docs</h1>
             </div>
             <div className="hidden sm:flex items-center px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span>
@@ -330,7 +330,7 @@ function ProbeDataTab() {
           Live Hardware Ground Truth
         </h2>
         <div className="text-slate-400 mb-6 bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <p>This data is not hardcoded. These capabilities were extracted locally directly from the Apple M4 CPU by compiling raw hexadecimal opcode payloads and tracking hardware traps (`SIGILL`). The output proves the exact capabilities of this silicon model.</p>
+          <p>This data is not hardcoded. These capabilities were extracted locally by compiling raw hexadecimal opcode payloads and tracking hardware traps. The output proves the exact capabilities of this silicon. Errors show the actual signal received (SIGILL, SIGSEGV, SIGBUS) and exit codes.</p>
           <div className="mt-3 text-xs text-slate-500 font-mono flex items-center">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2"></span>
             Executed at: {new Date(probeData.timestamp).toLocaleString()}
@@ -355,21 +355,34 @@ function ProbeDataTab() {
                 <h4 className="font-semibold text-slate-300 text-sm">{sec.name.replace(/\[.*\]/, "").trim()}</h4>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800">
-                {sec.items.map((item, i) => (
+                {sec.items.map((item: any, i: number) => {
+                  const statusConfig = item.status === "ok"
+                    ? { bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", label: "SUPPORTED" }
+                    : item.status === "compile_fail"
+                    ? { bg: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20", label: "COMPILE FAIL" }
+                    : item.status === "sigsegv"
+                    ? { bg: "bg-orange-500/10 text-orange-400 border-orange-500/20", label: "SIGSEGV" }
+                    : item.status === "sigbus"
+                    ? { bg: "bg-orange-500/10 text-orange-400 border-orange-500/20", label: "SIGBUS" }
+                    : { bg: "bg-red-500/10 text-red-400 border-red-500/20", label: item.status === "sigill" ? "SIGILL" : (item.status || "TRAP").toUpperCase() };
+                  return (
                   <div key={i} className="bg-slate-950 p-4 flex flex-col justify-center">
                     <div className="flex justify-between items-start mb-2">
-                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                         item.status === "ok" 
-                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
-                           : "bg-red-500/10 text-red-400 border border-red-500/20"
-                       }`}>
-                         {item.status === "ok" ? "SUPPORTED" : "TRAP (SIGILL)"}
+                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 border ${statusConfig.bg}`}>
+                         {statusConfig.label}
                        </span>
+                       {item.signal != null && item.status !== "ok" && (
+                         <span className="text-[9px] font-mono text-slate-600 ml-2">
+                           exit={item.exitCode} sig={item.signal}
+                         </span>
+                       )}
                     </div>
                     <code className="block font-mono text-sm text-cyan-300 mb-1 whitespace-pre-wrap">{item.instruction}</code>
                     {item.description && <div className="text-[11px] text-slate-500">{item.description}</div>}
+                    {item.error && <div className="text-[10px] text-red-400/60 font-mono mt-1 truncate">{item.error}</div>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

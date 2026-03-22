@@ -183,3 +183,6 @@ Thanks to Gemini 3.1 pro for assembling the React dashboards, benchmark integrat
 ## License
 
 MIT. See [LICENSE](LICENSE) for details.
+
+
+Note to self: The FPMR (Floating-Point Mode Register) controls the FP8 format. Without setting it, FMLALL treated our bytes as raw integers (56 × 56 = 3136). We need to write the correct format bits to FPMR before executing FMLALL.

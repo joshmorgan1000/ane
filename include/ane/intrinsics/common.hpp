@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <cstdlib>
-#include <ane/extern/asm.hpp>
+#include "../extern/asm.hpp"
 #include <simd/simd.h>
 
 namespace ane {
@@ -113,9 +113,6 @@ consteval T find_largest_simd_type_for(U value) {
     } else
     if constexpr (std::same_as<U, bfloat16_t>) {
         return bfloat16x8_t{};
-    } else
-    if constexpr (std::same_as<U, psyne::pc8>) {
-        return simd_uchar64{};
     } else {
         static_assert(always_false<U>, "No valid SIMD type for the given scalar type");
     }

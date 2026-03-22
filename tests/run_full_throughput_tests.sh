@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# run_full_throughput_tests.sh — Apple M4 Concurrent Throughput Measurement
+# run_full_throughput_tests.sh — Apple Silicon Concurrent Throughput Measurement
 #
 # Fully self-contained. Generates all source, builds, runs, analyzes.
 # Each worker logs heartbeats to stdout: <epoch_ns> <cumulative_ops>
@@ -9,31 +9,47 @@
 #
 # Workers:
 #   GPU  (Metal): char4 INT8 multiply-accumulate, 1M threads × 10K iters
-#   SME  (4 thr): ARM SMOPA int8 outer product on ZA tiles
-#   BNNS (4 thr): Apple Accelerate INT8 FullyConnected (int8×int8→int32)
-#   NEON (7 thr): ARM NEON FP32 fused multiply-add
+#   SME  (Nt thr): ARM SMOPA int8 outer product on ZA tiles
+#   BNNS (Nt thr): Apple Accelerate INT8 FullyConnected (int8×int8→int32)
+#   NEON (Nt thr): ARM NEON FP32 fused multiply-add
+#
+# Thread counts auto-detected from hardware topology.
 #
 # Usage: bash run_full_throughput_tests.sh
 # Requirements: Apple Silicon (SME2), Xcode/clang, Swift, python3
+#
+# Author: Josh Morgan (@joshmorgan1000 on GitHub) with help from Claude and Gemini Pro
+# Released under MIT License
 # =============================================================================
 set -u
 WORK=$(mktemp -d /tmp/ane_test.XXXXXX)
 trap "rm -rf $WORK" EXIT
 cd "$WORK"
-
 DURATION=10
-
+# ── Auto-detect core topology ────────────────────────────────────────────────
+CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Apple Silicon")
+PCORES=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo 4)
+ECORES=$(sysctl -n hw.perflevel1.logicalcpu 2>/dev/null || echo 0)
+TOTAL_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null || echo "$((PCORES + ECORES))")
+# SME runs on P-cores (Super/Performance cores with SME units)
+SME_THREADS=$PCORES
+# BNNS benefits from P-cores
+BNNS_THREADS=$PCORES
+# NEON can run on all cores; leave 1 for OS overhead
+NEON_THREADS=$((TOTAL_CORES - 1))
+[ "$NEON_THREADS" -lt 1 ] && NEON_THREADS=1
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║        Apple M4 Concurrent Throughput Measurement           ║"
-echo "║  Each worker runs ${DURATION}s, logging timestamped heartbeats.     ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "   ${CHIP} — Concurrent Throughput Measurement"
+echo "   Each worker runs ${DURATION}s, logging timestamped heartbeats."
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "   Cores: ${PCORES} P-cores + ${ECORES} E-cores = ${TOTAL_CORES} total"
+echo "   SME threads: ${SME_THREADS}  BNNS threads: ${BNNS_THREADS}  NEON threads: ${NEON_THREADS}"
+echo "═══════════════════════════════════════════════════════════════════════"
 echo ""
-
 # =============================================================================
 # Generate source files
 # =============================================================================
-
 # ── Metal shader ─────────────────────────────────────────────────────────────
 cat > int8_peak.metal << 'METAL'
 #include <metal_stdlib>
@@ -58,7 +74,6 @@ kernel void int8_peak(
     out[gid]=a0.x+a1.x+a2.x+a3.x+a4.x+a5.x+a6.x+a7.x;
 }
 METAL
-
 # ── GPU worker (Swift) ──────────────────────────────────────────────────────
 cat > gpu_worker.swift << SWIFT
 import Foundation
@@ -91,7 +106,6 @@ let ns=UInt64(Date().timeIntervalSince1970*1e9)
 print("\(ns) \(String(format:"%.0f",cumOps))")}}
 let fc=queue.makeCommandBuffer()!;fc.commit();fc.waitUntilCompleted()
 SWIFT
-
 # ── SME assembly kernel ─────────────────────────────────────────────────────
 cat > sme_kern.s << 'ASM'
 .section __TEXT,__text,regular,pure_instructions
@@ -118,7 +132,6 @@ _smopa_loop:
     ldp x29,x30,[sp],#16
     ret
 ASM
-
 # ── SME worker (C, 4 threads) ───────────────────────────────────────────────
 cat > sme_worker.c << 'CSRC'
 #include <stdio.h>
@@ -130,7 +143,9 @@ cat > sme_worker.c << 'CSRC'
 extern void smopa_loop(uint64_t iters);
 #define CHUNK 10000000ULL
 #define OPS_PER_ITER 16384.0
+#ifndef NT
 #define NT 4
+#endif
 static volatile int g_stop = 0;
 static volatile double g_cumops = 0;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -172,7 +187,6 @@ int main(int argc, char **argv) {
     return 0;
 }
 CSRC
-
 # ── BNNS INT8 worker (C, 4 threads) ─────────────────────────────────────────
 cat > bnns_worker.c << 'CSRC'
 #include <stdio.h>
@@ -186,7 +200,9 @@ cat > bnns_worker.c << 'CSRC'
 #define K_DIM 4096
 #define N_DIM 1024
 #define BATCH 512
+#ifndef NT
 #define NT 4
+#endif
 #define OPS_PER_CALL ((double)BATCH * N_DIM * K_DIM * 2.0)
 static int8_t *g_weights;
 static volatile int g_stop = 0;
@@ -253,7 +269,6 @@ int main(int argc, char **argv) {
     return 0;
 }
 CSRC
-
 # ── NEON FMA kernel (assembly) ──────────────────────────────────────────────
 cat > neon_kern.s << 'ASM'
 .section __TEXT,__text,regular,pure_instructions
@@ -308,7 +323,6 @@ _neon_fma_loop:
     b.ne 1b
     ret
 ASM
-
 # ── NEON worker (C, 7 threads) ──────────────────────────────────────────────
 cat > neon_worker.c << 'CSRC'
 #include <stdio.h>
@@ -319,7 +333,9 @@ cat > neon_worker.c << 'CSRC'
 extern void neon_fma_loop(uint64_t iters);
 #define CHUNK 50000000ULL
 #define OPS_PER_ITER 160.0
+#ifndef NT
 #define NT 7
+#endif
 static volatile int g_stop = 0;
 static volatile double g_cumops = 0;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -361,31 +377,28 @@ int main(int argc, char **argv) {
     return 0;
 }
 CSRC
-
 # =============================================================================
 # Build
 # =============================================================================
 echo "Building..."
 clang -c -arch arm64 -march=armv9-a+sme2+sve2+sme-lutv2 sme_kern.s -o sme_kern.o 2>/dev/null || { echo "FAIL: sme asm"; exit 1; }
-clang -O0 -arch arm64 -o _sme sme_worker.c sme_kern.o -lpthread 2>/dev/null || { echo "FAIL: sme"; exit 1; }
+clang -O0 -arch arm64 -DNT=$SME_THREADS -o _sme sme_worker.c sme_kern.o -lpthread 2>/dev/null || { echo "FAIL: sme"; exit 1; }
 clang -c -arch arm64 neon_kern.s -o neon_kern.o 2>/dev/null || { echo "FAIL: neon asm"; exit 1; }
-clang -O0 -arch arm64 -o _neon neon_worker.c neon_kern.o -lpthread 2>/dev/null || { echo "FAIL: neon"; exit 1; }
-clang -O2 -arch arm64 -o _bnns bnns_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: bnns"; exit 1; }
+clang -O0 -arch arm64 -DNT=$NEON_THREADS -o _neon neon_worker.c neon_kern.o -lpthread 2>/dev/null || { echo "FAIL: neon"; exit 1; }
+clang -O2 -arch arm64 -DNT=$BNNS_THREADS -o _bnns bnns_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: bnns"; exit 1; }
 swiftc -O -o _gpu gpu_worker.swift -framework Metal -framework Foundation 2>/dev/null || { echo "FAIL: gpu"; exit 1; }
 echo "  Done."
 echo ""
 echo "  GPU:  Metal char4 INT8 (1M threads × 10K iters per dispatch)"
-echo "  SME:  SMOPA int8 outer product (4 threads)"
-echo "  BNNS: Accelerate INT8 FullyConnected [512,4096]×[4096,1024] (4 threads)"
-echo "  NEON: FP32 FMLA (7 threads)"
+echo "  SME:  SMOPA int8 outer product (${SME_THREADS} threads)"
+echo "  BNNS: Accelerate INT8 FullyConnected [512,4096]×[4096,1024] (${BNNS_THREADS} threads)"
+echo "  NEON: FP32 FMLA (${NEON_THREADS} threads)"
 echo ""
-
 # =============================================================================
 # Analyzer
 # =============================================================================
 cat > analyze.py << 'PYANALYZE'
 import sys, os, json
-
 def read_log(path):
     entries = []
     if not os.path.exists(path): return entries
@@ -395,7 +408,6 @@ def read_log(path):
             try: entries.append((int(parts[0]), float(parts[1])))
             except ValueError: pass
     return entries
-
 def compute_throughput(logs):
     active = {k: v for k, v in logs.items() if len(v) >= 3}
     if not active:
@@ -422,7 +434,6 @@ def compute_throughput(logs):
     print(f"  {'':12s}  {'':>14s}  {'─'*8}")
     print(f"  {'TOTAL':<12s}  {total_ops_sec:>14,.0f}  {total_ops_sec/1e12:>8.3f}")
     return result_tops
-
 if sys.argv[1] == "--summary":
     results = json.loads(sys.argv[2])
     workers = sorted(set(w for r in results for w in r["tops"]))
@@ -453,7 +464,6 @@ else:
     result = compute_throughput(logs)
     if result: print(f"__RESULT__:{json.dumps(result)}")
 PYANALYZE
-
 # =============================================================================
 # Run tests
 # =============================================================================
@@ -483,17 +493,14 @@ run_test() {
     fi
     echo ""
 }
-
 > "$WORK/all_results.jsonl"
 echo "Running tests (${DURATION}s each)..."
 echo ""
-
 # Solo baselines
 run_test "GPU alone"                  gpu
-run_test "SME alone (4t)"             sme
-run_test "BNNS INT8 alone (4t)"       bnns
-run_test "NEON alone (7t)"            neon
-
+run_test "SME alone (${SME_THREADS}t)"             sme
+run_test "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
+run_test "NEON alone (${NEON_THREADS}t)"            neon
 # Pairs
 run_test "GPU + SME"                  gpu sme
 run_test "GPU + BNNS"                 gpu bnns
@@ -501,15 +508,12 @@ run_test "GPU + NEON"                 gpu neon
 run_test "SME + BNNS"                 sme bnns
 run_test "SME + NEON"                 sme neon
 run_test "BNNS + NEON"                bnns neon
-
 # Triples
 run_test "GPU + SME + NEON"           gpu sme neon
 run_test "GPU + BNNS + NEON"          gpu bnns neon
 run_test "GPU + SME + BNNS"           gpu sme bnns
-
 # Everything
 run_test "GPU + SME + BNNS + NEON"    gpu sme bnns neon
-
 # Summary
 RESULTS_JSON=$(python3 -c "
 import json
@@ -519,7 +523,6 @@ print(json.dumps(results))
 if [ -n "$RESULTS_JSON" ]; then
     python3 analyze.py --summary "$RESULTS_JSON"
 fi
-
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo " All tests complete."
