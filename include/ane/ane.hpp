@@ -58,7 +58,8 @@ enum class Op : uint8_t {
     softmax_argmax_fp32          = 0x19,  // batched softmax + argmax
     luti4_op                     = 0x1A,  // 4-bit table lookup via ZT0, [count:u32][elem_size:u8], 3 ops
     luti2_op                     = 0x1B,  // 2-bit table lookup via ZT0, [count:u32][elem_size:u8], 3 ops
-    NUM_OPCODES                  = 0x1C,
+    dense_fp32                   = 0x1C,  // full fp32 matmul via FMOPA (+optional relu)
+    NUM_OPCODES                  = 0x1D,
 };
 /** --------------------------------------------------------------------------------------------------------- Opcode Dispatch
  * @brief Dispatches an operation to the assembly interpreter by encoding the opcode and its arguments into a
@@ -68,8 +69,8 @@ enum class Op : uint8_t {
  */
 template<typename... Args>
 inline void dispatch(Op op, Args... args) {
-    size_t size_needed = 1 + (sizeof(Args) + ...);
-    std::vector<uint8_t> bytecodes(size_needed, 0);
+    constexpr size_t size_needed = 1 + (sizeof(Args) + ...);
+    alignas(8) uint8_t bytecodes[size_needed] = {};
     bytecodes[0] = static_cast<uint8_t>(op);
     size_t offset = 1;
     auto emit = [&](auto arg) {
@@ -78,7 +79,7 @@ inline void dispatch(Op op, Args... args) {
     };
     (emit(args), ...);
     asm volatile("" ::: "memory");  // prevent dead store elimination of bytecodes
-    interpreter::stream_exec(bytecodes.data(), bytecodes.size());
+    interpreter::stream_exec(bytecodes, size_needed);
 }
 /** --------------------------------------------------------------------------------------------------------- ValidZType Concept
  * @brief Concept to constrain valid types for z_stream operations. This includes all the standard
@@ -480,6 +481,7 @@ void stream_exec(const uint8_t* data, size_t size) {
         .long   Lop_softmax_argmax_fp32 - Ljump_table // 0x19
         .long   Lop_luti4 - Ljump_table // 0x1A
         .long   Lop_luti2 - Ljump_table // 0x1B
+        .long   Lop_dense_fp32 - Ljump_table // 0x1C
     // ================================================================
     // EXIT — reached end of bytecodes
     // ================================================================
@@ -2048,6 +2050,365 @@ void stream_exec(const uint8_t* data, size_t size) {
         add     x13, x13, x10
         sub     w22, w22, #1
         cbnz    w22, Lluti2_s
+        b       Ldispatch
+    // ================================================================
+    // DENSE_FP32 (0x1C)
+    // Full fp32 matmul via FMOPA: C = scale * (A @ B) [+ relu]
+    // Bytecode: [0x1C][M:u32][N:u32][K:u32][scale:f32][flags:u8]
+    //   flags bit 0: apply ReLU after matmul+scale
+    // Operands: A (M×K row-major fp32), B (K×N row-major fp32), C (M×N row-major fp32)
+    // 16×32 output tiles: za0+za1 accumulate, za2 inline transpose.
+    //   Caller must pad output buffer rows to ((M+31)&~31).
+    //   Caller must pad A columns (K dim) to ((K+15)&~15) with zeros.
+    // ================================================================
+    Lop_dense_fp32:
+        // ── Parse immediates + operands ──
+        ldr     w0, [x19]              // M
+        ldr     w1, [x19, #4]          // N
+        ldr     w2, [x19, #8]          // K
+        ldr     s20, [x19, #12]        // scale (f32)
+        ldrb    w18, [x19, #16]        // flags (bit 0 = relu)
+        add     x19, x19, #17
+        ldr     x5, [x19], #8          // A
+        ldr     x6, [x19], #8          // B
+        ldr     x7, [x19], #8          // C
+        // ── Derived values ──
+        add     w3, w0, #15
+        and     w3, w3, #0xFFFFFFF0    // M_pad = (M+15) & ~15 (tile rows = 16)
+        add     w4, w1, #31
+        and     w4, w4, #0xFFFFFFE0    // N_pad = (N+31) & ~31 (tile cols = 32)
+        lsr     w15, w2, #4            // k_blocks = K / 16
+        ptrue   p0.s
+        cntw    x9                     // SVLs = 16
+        lsl     x17, x2, #2           // K * 4 = A row stride in bytes
+        // ── Branchless ReLU threshold: z21 = relu ? 0.0 : -FLT_MAX ──
+        mov     z20.s, s20             // broadcast scale
+        and     w18, w18, #1
+        movz    w10, #0xFF7F, lsl #16
+        movk    w10, #0xFFFF           // -FLT_MAX
+        cmp     w18, #0
+        csel    w10, w10, wzr, eq      // relu=0 → -FLT_MAX; relu=1 → 0.0
+        fmov    s21, w10
+        mov     z21.s, s21
+        // ── Fixed 128-byte stack frame (context only, no scratch) ──
+        sub     sp, sp, #128
+        stp     x5, x6, [sp, #0]      // [0] A, [8] B
+        str     x7, [sp, #16]         // [16] C
+        stp     w0, w1, [sp, #24]     // [24] M, [28] N
+        str     w2, [sp, #32]         // [32] K
+        stp     w4, w3, [sp, #40]     // [40] N_pad, [44] M_pad  (store before x3 is reused)
+        str     w15, [sp, #48]        // [48] k_blocks
+        lsl     x3, x1, #2            // N * 4 = B/C row stride in bytes  (now safe to clobber w3)
+        stp     x3, x17, [sp, #56]    // [56] B_stride, [64] A_row_stride
+        // ── Tile row loop: ti = 0, 16, ... ──
+        mov     w0, #0                 // ti = 0
+    Lfp32_tile_row:
+        str     w0, [sp, #80]          // save ti
+        // A_tile_base = A + ti * K * 4
+        ldr     x5, [sp, #0]
+        ldr     w2, [sp, #32]
+        mul     w10, w0, w2
+        add     x5, x5, x10, lsl #2   // x5 = A + ti*K*4
+        // ── Tile column loop: tj = 0, 32, ... ──
+        mov     w1, #0                 // tj = 0
+    Lfp32_tile_col:
+        str     w1, [sp, #84]          // save tj
+        // Zero accumulators
+        zero    {za}
+        // B_tile = B + tj * 4
+        ldr     x6, [sp, #8]
+        add     x6, x6, x1, lsl #2
+        ldr     x3, [sp, #56]          // B_stride = N*4
+        ldr     x17, [sp, #64]         // A_row_stride = K*4
+        ldr     w15, [sp, #48]         // k_blocks
+        ptrue   p0.s
+        cntw    x9
+        // x13 = ck byte offset into A rows (advances by 64 per k-block)
+        mov     x13, xzr
+        // ── K-block loop: process 16 columns of A per iteration ──
+        cbz     w15, Lfp32_kblock_done
+    Lfp32_kblock:
+        // ── Load 16 A rows into za2 for transpose ──
+        zero    {za2.s}
+        add     x8, x5, x13           // A_tile_base + ck*4
+        mov     w12, #0
+        ld1w    {z0.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z1.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z2.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z3.s}, p0/z, [x8]
+        add     x8, x8, x17
+        mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+        mov     w12, #4
+        ld1w    {z0.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z1.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z2.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z3.s}, p0/z, [x8]
+        add     x8, x8, x17
+        mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+        mov     w12, #8
+        ld1w    {z0.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z1.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z2.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z3.s}, p0/z, [x8]
+        add     x8, x8, x17
+        mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+        mov     w12, #12
+        ld1w    {z0.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z1.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z2.s}, p0/z, [x8]
+        add     x8, x8, x17
+        ld1w    {z3.s}, p0/z, [x8]
+        mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+        // ── Extract 16 columns from za2, FMOPA into za0+za1 ──
+        // Cols 0-3
+        mov     w12, #0
+        mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z0.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z1.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z2.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z3.s, z5.s
+        add     x6, x6, x3
+        // Cols 4-7
+        mov     w12, #4
+        mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z0.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z1.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z2.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z3.s, z5.s
+        add     x6, x6, x3
+        // Cols 8-11
+        mov     w12, #8
+        mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z0.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z1.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z2.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z3.s, z5.s
+        add     x6, x6, x3
+        // Cols 12-15
+        mov     w12, #12
+        mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z0.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z1.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z2.s, z5.s
+        add     x6, x6, x3
+        ld1w    {z4.s}, p0/z, [x6]
+        ld1w    {z5.s}, p0/z, [x6, x9, lsl #2]
+        fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+        fmopa   za1.s, p0/m, p0/m, z3.s, z5.s
+        add     x6, x6, x3
+        // ── Advance k-block ──
+        add     x13, x13, #64         // ck += 16 elements (64 bytes)
+        subs    w15, w15, #1
+        b.ne    Lfp32_kblock
+    Lfp32_kblock_done:
+        // ── Store: extract za0+za1 → scale → clamp → C ──
+        ldr     x7, [sp, #16]         // C
+        ldr     w0, [sp, #80]         // ti
+        ldr     w1, [sp, #84]         // tj
+        ldr     w14, [sp, #28]        // N
+        lsl     x10, x14, #2          // C row stride = N*4
+        mul     w8, w0, w14
+        add     w8, w8, w1
+        add     x7, x7, x8, lsl #2   // C_tile = C + (ti*N + tj)*4
+        // Column predicates
+        sub     w6, w14, w1            // N - tj
+        mov     w8, #32
+        cmp     w6, w8
+        csel    w6, w6, w8, lt
+        whilelt p2.s, xzr, x6         // left cols
+        sub     w8, w6, #16
+        cmp     w8, #0
+        csel    w8, wzr, w8, lt
+        whilelt p3.s, xzr, x8         // right cols (0 if N-tj <= 16)
+        ptrue   p0.s
+        cntw    x9
+        // 4 groups of 4 rows = 16 rows
+        // Scale via fmul, relu via multi-vector fmax
+        mov     z14.d, z21.d           // relu threshold into low reg (z0-z15 required)
+        mov     w12, #0
+        // Group 0
+        mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+        mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+        fmul    z0.s, z0.s, z20.s
+        fmul    z1.s, z1.s, z20.s
+        fmul    z2.s, z2.s, z20.s
+        fmul    z3.s, z3.s, z20.s
+        fmul    z4.s, z4.s, z20.s
+        fmul    z5.s, z5.s, z20.s
+        fmul    z6.s, z6.s, z20.s
+        fmul    z7.s, z7.s, z20.s
+        fmax    {z0.s-z3.s}, {z0.s-z3.s}, z14.s
+        fmax    {z4.s-z7.s}, {z4.s-z7.s}, z14.s
+        st1w    {z0.s}, p2, [x7]
+        st1w    {z4.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z1.s}, p2, [x7]
+        st1w    {z5.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z2.s}, p2, [x7]
+        st1w    {z6.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z3.s}, p2, [x7]
+        st1w    {z7.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        // Group 1
+        mov     w12, #4
+        mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+        mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+        fmul    z0.s, z0.s, z20.s
+        fmul    z1.s, z1.s, z20.s
+        fmul    z2.s, z2.s, z20.s
+        fmul    z3.s, z3.s, z20.s
+        fmul    z4.s, z4.s, z20.s
+        fmul    z5.s, z5.s, z20.s
+        fmul    z6.s, z6.s, z20.s
+        fmul    z7.s, z7.s, z20.s
+        fmax    {z0.s-z3.s}, {z0.s-z3.s}, z14.s
+        fmax    {z4.s-z7.s}, {z4.s-z7.s}, z14.s
+        st1w    {z0.s}, p2, [x7]
+        st1w    {z4.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z1.s}, p2, [x7]
+        st1w    {z5.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z2.s}, p2, [x7]
+        st1w    {z6.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z3.s}, p2, [x7]
+        st1w    {z7.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        // Group 2
+        mov     w12, #8
+        mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+        mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+        fmul    z0.s, z0.s, z20.s
+        fmul    z1.s, z1.s, z20.s
+        fmul    z2.s, z2.s, z20.s
+        fmul    z3.s, z3.s, z20.s
+        fmul    z4.s, z4.s, z20.s
+        fmul    z5.s, z5.s, z20.s
+        fmul    z6.s, z6.s, z20.s
+        fmul    z7.s, z7.s, z20.s
+        fmax    {z0.s-z3.s}, {z0.s-z3.s}, z14.s
+        fmax    {z4.s-z7.s}, {z4.s-z7.s}, z14.s
+        st1w    {z0.s}, p2, [x7]
+        st1w    {z4.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z1.s}, p2, [x7]
+        st1w    {z5.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z2.s}, p2, [x7]
+        st1w    {z6.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z3.s}, p2, [x7]
+        st1w    {z7.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        // Group 3
+        mov     w12, #12
+        mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+        mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+        fmul    z0.s, z0.s, z20.s
+        fmul    z1.s, z1.s, z20.s
+        fmul    z2.s, z2.s, z20.s
+        fmul    z3.s, z3.s, z20.s
+        fmul    z4.s, z4.s, z20.s
+        fmul    z5.s, z5.s, z20.s
+        fmul    z6.s, z6.s, z20.s
+        fmul    z7.s, z7.s, z20.s
+        fmax    {z0.s-z3.s}, {z0.s-z3.s}, z14.s
+        fmax    {z4.s-z7.s}, {z4.s-z7.s}, z14.s
+        st1w    {z0.s}, p2, [x7]
+        st1w    {z4.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z1.s}, p2, [x7]
+        st1w    {z5.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z2.s}, p2, [x7]
+        st1w    {z6.s}, p3, [x7, x9, lsl #2]
+        add     x7, x7, x10
+        st1w    {z3.s}, p2, [x7]
+        st1w    {z7.s}, p3, [x7, x9, lsl #2]
+        // ── Advance tile column ──
+        ldr     w1, [sp, #84]          // tj
+        ldr     w4, [sp, #40]          // N_pad
+        add     w1, w1, #32
+        cmp     w1, w4
+        b.lt    Lfp32_tile_col
+        // ── Advance tile row ──
+        ldr     w0, [sp, #80]          // ti
+        ldr     w3, [sp, #44]          // M_pad
+        add     w0, w0, #16
+        cmp     w0, w3
+        b.lt    Lfp32_tile_row
+    Lfp32_tile_done:
+        add     sp, sp, #128
         b       Ldispatch
     )");
 }

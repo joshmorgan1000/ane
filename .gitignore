@@ -1,7 +1,10 @@
 build/
 .cache/
 temp/
-data/
+data/*
+!data/arm_docs.json
+**/data/*
+!**/data/arm_docs.json
 hftoken.txt
 # Prerequisites
 *.d

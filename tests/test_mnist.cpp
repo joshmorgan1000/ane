@@ -39,6 +39,14 @@ static constexpr int BATCH_SIZE = 50;
 static int pad_count(int count) {
     return ((count + 15) >> 4) << 4;
 }
+/** --------------------------------------------------------------------------------------------------------- Tile Padding
+ * @brief Pads the given count up to the next multiple of 32 (SME 2×2 tile block) for output buffers.
+ * @param count The original count of elements.
+ * @return The padded count, rounded up to the nearest multiple of 32.
+ */
+static int pad_tile(int count) {
+    return ((count + 31) >> 5) << 5;
+}
 /** --------------------------------------------------------------------------------------------------------- Aligned Allocation
  * @brief Allocates 64-byte aligned memory for the given size.
  */
@@ -47,6 +55,34 @@ static void* alloc64(size_t size) {
         size = ((size + 63) >> 6) << 6;
     }
     return aligned_alloc(64, size);
+}
+/** --------------------------------------------------------------------------------------------------------- Free Deleter
+ * @struct FreeDeleter
+ * @brief Custom deleter for aligned memory allocated with alloc64, used with std::unique_ptr.
+ */
+struct FreeDeleter { void operator()(void* p) const { free(p); } };
+/** --------------------------------------------------------------------------------------------------------- Normalize Images
+ * @brief Converts raw uint8 MNIST images to float [0,1] using SIMD, writing into a pre-zeroed buffer.
+ * @param src  Raw uint8 image data (count × 784)
+ * @param dst  Pre-zeroed float output buffer (count × inp_pad)
+ * @param count Number of images to normalize
+ * @param inp_pad Padded input dimension (multiple of 16)
+ */
+static void normalize_images(const uint8_t* src, float* dst, int count, int inp_pad) {
+    simd_float16 inv255 = 1.0f / 255.0f;
+    for (int s = 0; s < count; s++) {
+        const simd_uchar64* in = (const simd_uchar64*)&src[s * INPUT_DIM];
+        simd_float16* out = (simd_float16*)&dst[s * inp_pad];
+        for (int i = 0; i < INPUT_DIM / 64; i++) {
+            simd_uchar16* q = (simd_uchar16*)&in[i];
+            out[i * 4]     = simd_float(q[0]) * inv255;
+            out[i * 4 + 1] = simd_float(q[1]) * inv255;
+            out[i * 4 + 2] = simd_float(q[2]) * inv255;
+            out[i * 4 + 3] = simd_float(q[3]) * inv255;
+        }
+        simd_uchar16 tail = *(simd_uchar16*)&src[s * INPUT_DIM + 768];
+        out[48] = simd_float(tail) * inv255;
+    }
 }
 /** --------------------------------------------------------------------------------------------------------- Worker Context
  * @struct WorkerCtx
@@ -67,19 +103,21 @@ struct WorkerCtx {
     float* g_W2_sample;  ///< Per-batch gradient scratch for W2 (HIDDEN_DIM × OUTPUT_DIM)
     int32_t* pred;       ///< B prediction indices from argmax
     static WorkerCtx create(int batch, int inp_pad, int hid_pad, int out_pad) {
+        int bp = pad_tile(batch);   ///< Batch padded to 32 for tile-safe stores
+        int ip = pad_tile(INPUT_DIM); ///< Input dim padded to 32 for gradient output
         return {
-            (float*)alloc64(batch * hid_pad * sizeof(float)),
-            (float*)alloc64(batch * out_pad * sizeof(float)),
-            (float*)alloc64(batch * out_pad * sizeof(float)),
-            (float*)alloc64(batch * out_pad * sizeof(float)),
-            (float*)alloc64(batch * hid_pad * sizeof(float)),
-            (float*)alloc64(batch * hid_pad * sizeof(float)),
-            (float*)alloc64(out_pad * HIDDEN_DIM * sizeof(float)),
-            (float*)alloc64(inp_pad * batch * sizeof(float)),
-            (float*)alloc64(hid_pad * batch * sizeof(float)),
-            (float*)alloc64(INPUT_DIM * HIDDEN_DIM * sizeof(float)),
+            (float*)alloc64(bp * hid_pad * sizeof(float)),
+            (float*)alloc64(bp * out_pad * sizeof(float)),
+            (float*)alloc64(bp * out_pad * sizeof(float)),
+            (float*)alloc64(bp * out_pad * sizeof(float)),
+            (float*)alloc64(bp * hid_pad * sizeof(float)),
+            (float*)alloc64(bp * hid_pad * sizeof(float)),
+            (float*)alloc64(pad_tile(out_pad) * HIDDEN_DIM * sizeof(float)),
+            (float*)alloc64(ip * pad_count(batch) * sizeof(float)),
+            (float*)alloc64(hid_pad * pad_count(batch) * sizeof(float)),
+            (float*)alloc64(ip * HIDDEN_DIM * sizeof(float)),
             (float*)alloc64(HIDDEN_DIM * out_pad * sizeof(float)),
-            (int32_t*)alloc64(batch * sizeof(int32_t)),
+            (int32_t*)alloc64(bp * sizeof(int32_t)),
         };
     }
     void destroy() {
@@ -142,7 +180,6 @@ static bool load_labels(const char* path, uint8_t* out, int n) {
  * Each thread grabs batches atomically and applies SGD updates directly to shared model parameters.
  * @param tid Thread ID
  * @param next_batch_index Atomic counter for grabbing next batch
- * @param idx Shuffled sample indices for this epoch
  * @param train_fp Normalized training images (TRAIN_IMAGES × inp_pad)
  * @param train_lbl Training labels
  * @param W1 Shared model parameters for first dense (INPUT_DIM × HIDDEN_DIM)
@@ -180,13 +217,13 @@ static void worker(
         // ── Forward: xi(B×784) @ W1 → hidden(B×128) + relu ──
         memset(ctx.hidden, 0, batch_size * hid_pad * sizeof(float));
         ane::dispatch(
-            ane::Op::dense_fused_i8, batch_size, HIDDEN_DIM, INPUT_DIM,
+            ane::Op::dense_fp32, batch_size, HIDDEN_DIM, INPUT_DIM,
             1.0f, true, xi, W1, ctx.hidden
         );
         // ── Forward: hidden(B×128) @ W2 → logits(B×10) ──
         memset(ctx.logits, 0, batch_size * out_pad * sizeof(float));
         ane::dispatch(
-            ane::Op::dense_fused_i8, batch_size, out_pad, HIDDEN_DIM,
+            ane::Op::dense_fp32, batch_size, out_pad, HIDDEN_DIM,
             1.0f, false, ctx.hidden, W2, ctx.logits
         );
         // ── Pad logits columns 10-15 with -1000.0f per row (SIMD bitselect) ──
@@ -210,17 +247,18 @@ static void worker(
         }
         total_correct->fetch_add(correct, std::memory_order_relaxed);
         // ── Backward: transpose hidden(B×128) → h_T(128×B), h_T @ g_out → g_W2_sample(128×10) ──
+        memset(ctx.h_T, 0, hid_pad * pad_count(batch_size) * sizeof(float));
         ane::dispatch(ane::Op::transpose_fp32, batch_size, HIDDEN_DIM, ctx.hidden, ctx.h_T);
         memset(ctx.g_W2_sample, 0, HIDDEN_DIM * out_pad * sizeof(float));
         ane::dispatch(
-            ane::Op::dense_fused_i8, HIDDEN_DIM, out_pad, batch_size,
+            ane::Op::dense_fp32, HIDDEN_DIM, out_pad, batch_size,
             1.0f, false, ctx.h_T, ctx.g_out, ctx.g_W2_sample
         );
         // ── Backward: transpose W2 → W2_T(out_pad×128), g_out @ W2_T → g_hid(B×128) ──
         ane::dispatch(ane::Op::transpose_fp32, HIDDEN_DIM, out_pad, W2, ctx.W2_T);
         memset(ctx.g_hid, 0, batch_size * hid_pad * sizeof(float));
         ane::dispatch(
-            ane::Op::dense_fused_i8, batch_size, HIDDEN_DIM, out_pad,
+            ane::Op::dense_fp32, batch_size, HIDDEN_DIM, out_pad,
             1.0f, false, ctx.g_out, ctx.W2_T, ctx.g_hid
         );
         // ── ReLU backward: g_hid_r = mask(hidden) * g_hid ──
@@ -229,10 +267,11 @@ static void worker(
             ctx.hidden, ctx.g_hid, ctx.g_hid_r
         );
         // ── Backward: transpose xi(B×784) → x_T(784×B), x_T @ g_hid_r → g_W1_sample(784×128) ──
+        memset(ctx.x_T, 0, pad_tile(INPUT_DIM) * pad_count(batch_size) * sizeof(float));
         ane::dispatch(ane::Op::transpose_fp32, batch_size, INPUT_DIM, xi, ctx.x_T);
         memset(ctx.g_W1_sample, 0, INPUT_DIM * HIDDEN_DIM * sizeof(float));
         ane::dispatch(
-            ane::Op::dense_fused_i8, INPUT_DIM, HIDDEN_DIM, batch_size,
+            ane::Op::dense_fp32, INPUT_DIM, HIDDEN_DIM, batch_size,
             1.0f, false, ctx.x_T, ctx.g_hid_r, ctx.g_W1_sample
         );
         // ── SGD update: W -= (lr/B) * gradient (Hogwild, races OK) ──
@@ -275,39 +314,14 @@ int main(int argc, char** argv) {
     int inp_pad = pad_count(INPUT_DIM);
     int hid_pad = pad_count(HIDDEN_DIM);
     int out_pad = pad_count(OUTPUT_DIM);
-    auto* train_fp = (float*)alloc64(TRAIN_IMAGES * inp_pad * sizeof(float));
-    auto* test_fp  = (float*)alloc64(TEST_IMAGES * inp_pad * sizeof(float));
-    memset(train_fp, 0, TRAIN_IMAGES * inp_pad * sizeof(float));
-    memset(test_fp, 0, TEST_IMAGES * inp_pad * sizeof(float));
-    {
-        simd_float16 inv255 = 1.0f / 255.0f;
-        for (int s = 0; s < TRAIN_IMAGES; s++) {
-            const simd_uchar64* in = (const simd_uchar64*)&train_img[s * INPUT_DIM];
-            simd_float16* out = (simd_float16*)&train_fp[s * inp_pad];
-            for (int i = 0; i < INPUT_DIM / 64; i++) {
-                simd_uchar16* q = (simd_uchar16*)&in[i];
-                out[i * 4]     = simd_float(q[0]) * inv255;
-                out[i * 4 + 1] = simd_float(q[1]) * inv255;
-                out[i * 4 + 2] = simd_float(q[2]) * inv255;
-                out[i * 4 + 3] = simd_float(q[3]) * inv255;
-            }
-            simd_uchar16 tail = *(simd_uchar16*)&train_img[s * INPUT_DIM + 768];
-            out[48] = simd_float(tail) * inv255;
-        }
-        for (int s = 0; s < TEST_IMAGES; s++) {
-            const simd_uchar64* in = (const simd_uchar64*)&test_img[s * INPUT_DIM];
-            simd_float16* out = (simd_float16*)&test_fp[s * inp_pad];
-            for (int i = 0; i < INPUT_DIM / 64; i++) {
-                simd_uchar16* q = (simd_uchar16*)&in[i];
-                out[i * 4]     = simd_float(q[0]) * inv255;
-                out[i * 4 + 1] = simd_float(q[1]) * inv255;
-                out[i * 4 + 2] = simd_float(q[2]) * inv255;
-                out[i * 4 + 3] = simd_float(q[3]) * inv255;
-            }
-            simd_uchar16 tail = *(simd_uchar16*)&test_img[s * INPUT_DIM + 768];
-            out[48] = simd_float(tail) * inv255;
-        }
-    }
+    int train_alloc = (TRAIN_IMAGES + pad_count(BATCH_SIZE)) * inp_pad;
+    int test_alloc = (TEST_IMAGES + pad_count(BATCH_SIZE)) * inp_pad;
+    std::unique_ptr<float[], FreeDeleter> train_fp((float*)alloc64(train_alloc * sizeof(float)));
+    std::unique_ptr<float[], FreeDeleter> test_fp((float*)alloc64(test_alloc * sizeof(float)));
+    memset(train_fp.get(), 0, train_alloc * sizeof(float));
+    memset(test_fp.get(), 0, test_alloc * sizeof(float));
+    normalize_images(train_img.data(), train_fp.get(), TRAIN_IMAGES, inp_pad);
+    normalize_images(test_img.data(), test_fp.get(), TEST_IMAGES, inp_pad);
     printf("  Data normalized\n");
     std::unique_ptr<float[]> W1(new float[INPUT_DIM * HIDDEN_DIM]);
     std::unique_ptr<float[]> W2(new float[HIDDEN_DIM * out_pad]);
@@ -338,18 +352,24 @@ int main(int argc, char** argv) {
         epochs, lr, BATCH_SIZE, num_batches, num_threads
     );
     for (int ep = 0; ep < epochs; ep++) {
+        // ── Shuffle training data in-place (Fisher-Yates on rows) ──
+        for (int i = TRAIN_IMAGES - 1; i > 0; i--) {
+            int j = std::uniform_int_distribution<int>(0, i)(rng);
+            std::swap_ranges(&train_fp[i * inp_pad], &train_fp[(i + 1) * inp_pad], &train_fp[j * inp_pad]);
+            std::swap(train_lbl[i], train_lbl[j]);
+        }
         std::atomic<int> total_correct(0);
         std::atomic<uint64_t> next_batch_index(0);
         std::vector<std::thread> threads;
         uint64_t start_time = std::chrono::steady_clock::now().time_since_epoch().count();
         for (int t = 1; t < num_threads; t++) threads.emplace_back(
             &worker,
-            t, &next_batch_index, train_fp, train_lbl.get(),
+            t, &next_batch_index, train_fp.get(), train_lbl.get(),
             W1.get(), W2.get(), workers.get(), &total_correct,
             inp_pad, hid_pad, out_pad, BATCH_SIZE, lr
         );
         worker(
-            0, &next_batch_index, train_fp, train_lbl.get(),
+            0, &next_batch_index, train_fp.get(), train_lbl.get(),
             W1.get(), W2.get(), workers.get(), &total_correct,
             inp_pad, hid_pad, out_pad, BATCH_SIZE, lr
         );
@@ -368,20 +388,20 @@ int main(int argc, char** argv) {
         // ── Eval (single-threaded) ──
         int tc = 0;
         for (int s = 0; s < TEST_IMAGES; s++) {
-            const float* xi = &test_fp[s * inp_pad];
+            const float* xi = &test_fp.get()[s * inp_pad];
             memset(eval_ctx.hidden, 0, hid_pad * sizeof(float));
             ane::dispatch(
-                ane::Op::dense_fused_i8, 1, HIDDEN_DIM, INPUT_DIM,
+                ane::Op::dense_fp32, 1, HIDDEN_DIM, INPUT_DIM,
                 1.0f, true, xi, W1.get(), eval_ctx.hidden
             );
             memset(eval_ctx.logits, 0, out_pad * sizeof(float));
             ane::dispatch(
-                ane::Op::dense_fused_i8, 1, out_pad, HIDDEN_DIM,
+                ane::Op::dense_fp32, 1, out_pad, HIDDEN_DIM,
                 1.0f, false, eval_ctx.hidden, W2.get(), eval_ctx.logits
             );
             for (int i = OUTPUT_DIM; i < out_pad; i++) eval_ctx.logits[i] = -1000.0f;  // mask padding
             int32_t pred = 0;
-            float g_out_dummy[16] = {};
+            float g_out_dummy[16] = {};  ///< Gradient output required by op but discarded during eval
             ane::dispatch(
                 ane::Op::softmax_argmax_fp32, 1, out_pad,
                 eval_ctx.logits, eval_ctx.probs, &test_lbl[s], g_out_dummy, &pred
@@ -396,6 +416,5 @@ int main(int argc, char** argv) {
     for (int t = 0; t < num_threads; t++) {
         workers[t].destroy();
     }
-    free(train_fp); free(test_fp);
     return 0;
 }
