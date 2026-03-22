@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { Cpu, MemoryStick, Layers, Code2, AlertTriangle, MonitorPlay, Zap, Table as TableIcon, Activity } from 'lucide-react';
+import { Cpu, MemoryStick, Layers, Code2, AlertTriangle, MonitorPlay, Zap, Table as TableIcon, Baseline, BookOpen, Search, X, Info } from 'lucide-react';
 import probeData from './data/probe_results.json';
 import throughputData from './data/throughput_results.json';
+import mnistData from './data/mnist_results.json';
+import armDocsData from './data/arm_docs.json';
 
 const chip = probeData?.sysInfo?.chip || 'M-Series';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'registers' | 'operations' | 'memory' | 'probe' | 'throughput'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'registers' | 'operations' | 'throughput' | 'mnist'>('overview');
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-300 font-sans selection:bg-cyan-900 selection:text-cyan-100">
-      <header className="border-b border-slate-800 bg-slate-900/50 sticky top-0 z-10 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div className="min-h-screen bg-slate-950 text-slate-300 font-sans selection:bg-cyan-900 selection:text-cyan-100 flex flex-col">
+      <header className="border-b border-slate-800 bg-slate-900/50 sticky top-0 z-10 backdrop-blur-sm shrink-0">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 text-cyan-400">
               <Zap className="w-8 h-8" />
@@ -25,19 +27,18 @@ export default function App() {
           <p className="mt-1 text-sm text-slate-400">Definitive hardware nuances & undocumented features (SVE / SME2)</p>
         </div>
         
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 overflow-x-auto">
+        <nav className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 overflow-x-auto">
           {[
             { id: 'overview', icon: MonitorPlay, label: 'Nuances & Overview' },
-            { id: 'registers', icon: Layers, label: 'Register Sizes & Slices' },
+            { id: 'registers', icon: MemoryStick, label: 'Registers & Memory' },
             { id: 'operations', icon: Code2, label: 'Operations & Mnemonics' },
-            { id: 'memory', icon: MemoryStick, label: 'Memory Overlaps' },
-            { id: 'probe', icon: Activity, label: 'Live Probe Results' },
             { id: 'throughput', icon: Zap, label: 'Throughput (TOPS)' },
+            { id: 'mnist', icon: Baseline, label: 'MNIST Benchmarks' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center space-x-2 py-4 border-b-2 text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`flex items-center space-x-2 py-4 -mb-[1px] border-b-2 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-cyan-500 text-cyan-400'
                   : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -50,14 +51,217 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
+      <main className={`flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 ${activeTab === 'operations' ? 'flex flex-col' : 'space-y-12'}`}>
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'registers' && <RegistersTab />}
-        {activeTab === 'operations' && <OperationsTab />}
-        {activeTab === 'memory' && <MemoryTab />}
-        {activeTab === 'probe' && <ProbeDataTab />}
+        {activeTab === 'operations' && <CombinedOperationsTab />}
         {activeTab === 'throughput' && <ThroughputTab />}
+        {activeTab === 'mnist' && <MnistBenchmarksTab />}
       </main>
+    </div>
+  );
+}
+
+function CombinedOperationsTab() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedOp, setSelectedOp] = useState<any>(null);
+
+  const probeItems = probeData.sections.filter((sec: any) => sec.items && sec.items[0] && !sec.items[0].label).flatMap((sec: any) => 
+    sec.items.map((item: any) => ({ ...item, category: sec.name.replace(/\[.*\]/, "").trim() }))
+  );
+
+  const filteredItems = probeItems.filter((item: any) => 
+    item.instruction.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const getDoc = (instr: string) => {
+    const mnemonic = instr.split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return (armDocsData as any)[mnemonic];
+  };
+
+  return (
+    <div className="animate-in fade-in flex flex-col lg:flex-row gap-6 h-[calc(100vh-14rem)] w-full relative">
+      {/* MASTER PANE */}
+      <div className="w-full lg:w-1/3 xl:w-1/4 flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl shrink-0 h-[40vh] lg:h-auto">
+        <div className="p-4 border-b border-slate-800 bg-slate-900/80 sticky top-0 z-10 shrink-0">
+          <div className="flex items-center space-x-2 text-slate-200 font-bold mb-3">
+            <Code2 className="w-5 h-5 text-cyan-400" />
+            <h3>Operations ({filteredItems.length})</h3>
+          </div>
+          <div className="relative group w-full">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-slate-500 group-focus-within:text-cyan-400 transition-colors" />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="block w-full pl-9 pr-8 py-2 text-sm border border-slate-700/80 rounded-lg bg-slate-950 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all font-mono"
+              placeholder="Search mnemonics..."
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 pr-2 flex items-center text-slate-500 hover:text-slate-300">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 bg-slate-900/30 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+          {filteredItems.length === 0 ? (
+            <div className="p-6 text-center text-slate-500">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p className="text-sm">No operations found</p>
+            </div>
+          ) : (
+            filteredItems.map((item: any, i: number) => {
+              const isSelected = selectedOp?.instruction === item.instruction;
+              const hasDoc = !!getDoc(item.instruction);
+              
+              return (
+                <button 
+                  key={i}
+                  onClick={() => setSelectedOp(item)}
+                  className={`w-full text-left px-4 py-3 transition-colors hover:bg-slate-800/50 focus:outline-none flex flex-col group ${
+                    isSelected ? 'bg-slate-800/80 border-l-2 border-cyan-500' : 'border-l-2 border-transparent'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-1 w-full relative">
+                    <code className={`font-mono text-sm leading-tight pr-4 ${isSelected ? 'text-cyan-400 font-bold' : 'text-slate-300 group-hover:text-cyan-300'}`}>
+                      {item.instruction.split(' ')[0]}
+                    </code>
+                    <div className="flex items-center space-x-2 shrink-0">
+                       {hasDoc && <BookOpen className={`w-3.5 h-3.5 ${isSelected ? 'text-fuchsia-400' : 'text-slate-600 group-hover:text-cyan-400'}`} />}
+                       <span className={`w-2 h-2 rounded-full ${item.status === 'ok' ? 'bg-emerald-500' : item.status === 'compile_fail' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500 truncate w-full">{item.instruction}</div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* DETAIL PANE */}
+      <div className="w-full lg:w-2/3 xl:w-3/4 flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl flex-1 relative">
+        {selectedOp ? (
+          <div className="flex flex-col h-full">
+            {/* Detail Header */}
+            <div className="shrink-0 p-6 md:p-8 border-b border-slate-800 bg-slate-900/50">
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-bold text-cyan-400 font-mono mb-2">{selectedOp.instruction}</h2>
+                  <p className="text-slate-400 text-lg">{selectedOp.description}</p>
+                </div>
+                <div className="flex flex-col items-end shrink-0">
+                  <span className={`px-4 py-1.5 rounded-full font-bold uppercase tracking-wider border text-sm flex items-center shadow-inner ${selectedOp.status === 'ok' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                    <span className={`w-2 h-2 rounded-full mr-2 ${selectedOp.status === 'ok' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+                    {selectedOp.status === 'ok' ? 'ACTIVE CHIP SUPPORT' : (selectedOp.status || 'TRAP').toUpperCase()}
+                  </span>
+                  <span className="text-xs text-slate-500 mt-3 font-mono">
+                    Category: {selectedOp.category}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable Doc Content */}
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+              <h3 className="text-xl font-bold text-slate-200 mb-6 flex items-center sticky top-0 bg-slate-900 py-2 z-10">
+                <BookOpen className="w-6 h-6 mr-3 text-fuchsia-400" />
+                ARM Architecture Reference
+              </h3>
+              
+              {(() => {
+                const docData = getDoc(selectedOp.instruction);
+                return docData && docData.length > 0 ? (
+                  <div className="space-y-6 pb-6">
+                    {docData.map((doc: string, i: number) => (
+                      <div key={i} className="bg-slate-950 p-5 md:p-6 rounded-lg text-slate-300 font-mono text-sm leading-relaxed border border-slate-800/80 whitespace-pre-wrap shadow-inner overflow-x-auto">
+                        {doc}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-slate-950/50 p-12 rounded-xl text-center border border-slate-800/80 border-dashed">
+                    <Info className="w-12 h-12 mx-auto mb-4 text-slate-600 opacity-50" />
+                    <p className="text-slate-400 font-medium text-lg">No exact documentation mapped for this mnemonic.</p>
+                    <p className="text-slate-600 text-sm mt-2">This may be an alias or a highly specific variation not individually outlined in the base reference text.</p>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-slate-500 bg-slate-900/30">
+            <BookOpen className="w-16 h-16 mb-4 opacity-20" />
+            <p className="text-xl font-medium">Select an operation to view details</p>
+            <p className="text-sm mt-2 opacity-60">Browse the list or search for a mnemonic to explore native ARM docs</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MnistBenchmarksTab() {
+  const formatSPS = (val: number) => {
+    return new Intl.NumberFormat('en-US').format(Math.round(val));
+  };
+  
+  const speedup = mnistData.pytorch.throughput > 0 
+    ? (mnistData.sme.throughput / mnistData.pytorch.throughput).toFixed(1)
+    : 'N/A';
+
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <section>
+        <div className="flex items-center space-x-3 mb-6">
+          <Baseline className="w-6 h-6 text-fuchsia-400" />
+          <h2 className="text-2xl font-bold text-slate-100">MNIST Training Benchmarks</h2>
+        </div>
+        
+        <p className="text-slate-300 max-w-4xl mb-8 leading-relaxed">
+          This benchmark evaluates a simple 3-layer neural network (784 → 128 → 10) on the MNIST dataset. It compares the custom bare-metal SME C++ implementation executing hand-tuned SME bytecode against PyTorch CPU (Eager). Performance is measured in samples evaluated per second.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-bl-full blur-3xl"></div>
+            <h3 className="text-xl font-bold text-slate-100 mb-2 truncate">SME Native (C++)</h3>
+            <div className="flex items-end space-x-2">
+              <span className="text-4xl font-bold text-cyan-400">{formatSPS(mnistData.sme.throughput)}</span>
+              <span className="text-slate-400 pb-1">samples/sec</span>
+            </div>
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <span className="text-slate-400">Final Accuracy</span>
+              <span className="text-emerald-400 font-mono">{mnistData.sme.accuracy}%</span>
+            </div>
+          </div>
+          
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-bl-full blur-3xl"></div>
+            <h3 className="text-xl font-bold text-slate-100 mb-2 truncate">PyTorch CPU (Eager)</h3>
+            <div className="flex items-end space-x-2">
+              <span className="text-4xl font-bold text-orange-400">{formatSPS(mnistData.pytorch.throughput)}</span>
+              <span className="text-slate-400 pb-1">samples/sec</span>
+            </div>
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <span className="text-slate-400">Final Accuracy</span>
+              <span className="text-emerald-400 font-mono">{mnistData.pytorch.accuracy}%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-fuchsia-500/10 to-transparent border-l-4 border-fuchsia-500 p-6 rounded-r-xl">
+          <h3 className="text-lg font-bold text-slate-100 mb-2">Performance Analysis</h3>
+          <p className="text-slate-300">
+            The SME Native implementation achieves a <strong className="text-fuchsia-400">{speedup}x speedup</strong> over PyTorch CPU. This demonstrates the immense raw throughput available when bypassing heavy framework overhead and directly targeting Apple Silicon's Matrix Coprocessor via hand-tuned micro-ops.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
@@ -70,8 +274,7 @@ function OverviewTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card title="Undocumented Byte Tiles" icon={<Layers className="text-purple-400" />}>
             <p>
-              By default, ARM specifications suggest only <code>ZA0.B</code> exists for 8-bit operations. However, hardware probing confirms the Apple {chip} silicon supports <strong className="text-purple-300">ZA1.B, ZA2.B, and ZA3.B</strong>.
-              These can be accessed normally using encodings such as <code className="bg-slate-800 px-1 rounded">0xc0000000</code> to <code className="bg-slate-800 px-1 rounded">0xc0000003</code>.
+              By default, ARM specifications suggest only <code>ZA0.B</code> exists for 8-bit operations. However, hardware probing confirms the Apple {chip} silicon supports <strong className="text-purple-300">ZA1.B, ZA2.B, and ZA3.B</strong>. These can be accessed normally using encodings such as <code className="bg-slate-800 px-1 rounded">0xc0000000</code> to <code className="bg-slate-800 px-1 rounded">0xc0000003</code>.
             </p>
           </Card>
           
@@ -89,7 +292,7 @@ function OverviewTab() {
 
           <Card title="8-Bit MOPA Verification" icon={<Zap className="text-cyan-400" />}>
             <p>
-              {chip} fully implements complete combinations of signs via <strong className="text-cyan-300">smopa, umopa, sumopa, and usmopa</strong> across all standard 32-bit output tiles (<code>za0.s</code> - <code>za3.s</code>). 
+              {chip} fully implements complete combinations of signs via <strong className="text-cyan-300">smopa, umopa, sumopa, and usmopa</strong> across all standard 32-bit output tiles (<code>za0.s</code> - <code>za3.s</code>).
             </p>
           </Card>
         </div>
@@ -176,87 +379,13 @@ function RegistersTab() {
           </div>
         </section>
       </div>
-    </div>
-  );
-}
 
-function OperationsTab() {
-  const operations = [
-    {
-      name: "sdot za.s[w0, 0, vgx4], {z0.b-z3.b}, z4.b",
-      type: "SME2 Matrix",
-      desc: "4-way Signed Dot Product (Outer Product). Performs 8-bit outer product multiplication between elements of vector sequences. It generates a 32-bit accumulative update into a specific ZA tile, treating the input vectors as matrices. This is how {chip} natively handles multi-way outer products instead of legacy single-tile SMOPAs.",
-      code: "0xa0812000 // Multi-vector SDOT"
-    },
-    {
-      name: "smopa za0.s, p0/m, p0/m, z0.b, z1.b",
-      type: "SME1 Outer Product",
-      desc: "Signed Matrix Outer Product and Accumulate. Takes two 8-bit Z vectors (columns and rows), multiplies them, inflates the result to 32 bits, and accumulates directly into the `za0.s` (32-bit Word) tile. Predicates (p0) govern active lines.",
-      code: "0xa0010000 // Standard SMOPA"
-    },
-    {
-      name: "mova za1h.b[w0, 0], p0/m, z0.b",
-      type: "Data Movement",
-      desc: "Move vector to ZA Array slice. Moves horizontal (h) or vertical (v) slices of data from Z registers directly into the specified ZA tile byte index. {chip} natively supports undoc tiles za1-3.b.",
-      code: "0xc0000001 // Write to ZA1.B"
-    },
-    {
-      name: "usmopa za0.s, p0/m, p0/m, z0.b, z1.b",
-      type: "Cross-Sign Outer",
-      desc: "Unsigned / Signed Matrix Outer Product. Similar to smopa, but treats the left vector as Unsigned 8-bit and the right vector as Signed 8-bit before expanding to 32-bit logic. Crucial for asymmetric quantization schemes (e.g. U8 weights, S8 activations).",
-      code: "0xa0410000 // USMOPA"
-    },
-    {
-      name: "zero {za}",
-      type: "Clear State",
-      desc: "Completely zeroes out the entire 4KB ZA Matrix array. Typically executed explicitly right before the beginning of macro-tile operations mapped out for an attention block or feedforward layer to prevent garbage data accumulation.",
-      code: "zero {za}"
-    }
-  ];
-
-  return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <h2 className="text-2xl font-bold text-slate-100 mb-6">Mnemonics & Core Operations</h2>
-      
-      <div className="space-y-4">
-        {operations.map((op, i) => (
-          <div key={i} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
-            <div className="flex flex-col md:flex-row md:items-start justify-between">
-              <div className="flex-1 mr-6">
-                <h3 className="font-mono text-lg font-bold text-cyan-400">{op.name}</h3>
-                <span className="inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium bg-indigo-900/50 text-indigo-300 border border-indigo-700/50">
-                  {op.type}
-                </span>
-                <p className="mt-3 text-slate-400 text-sm leading-relaxed">
-                  {op.desc}
-                </p>
-              </div>
-              <div className="mt-4 md:mt-0 shrink-0 bg-black/50 p-3 rounded-lg border border-slate-800 h-fit">
-                <code className="text-xs font-mono text-emerald-400 whitespace-pre">{op.code}</code>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MemoryTab() {
-  return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <section>
-        <h2 className="text-2xl font-bold text-slate-100 mb-4 flex items-center">
-          <MemoryStick className="w-6 h-6 mr-3 text-indigo-400" />
-          Memory Overlaps & Slice Alignment
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+        <section>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 h-full">
             <h3 className="text-lg font-bold text-slate-200 mb-2">The ZA Aliasing Model</h3>
             <p className="text-sm text-slate-400 mb-4 leading-relaxed">
-              The predefined ZA tiles (Byte, Halfword, Word, Doubleword) are <strong>not separate chunks of memory</strong>. They are overlapping architectural aliases matching the same flat 4KB block. 
-              Modifying <code>ZA0.B</code> implicitly modifies interleaved segments of <code>ZA0.S</code>, <code>ZA1.S</code>, etc.
+              The predefined ZA tiles (Byte, Halfword, Word, Doubleword) are <strong>not separate chunks of memory</strong>. They are overlapping architectural aliases matching the same flat 4KB block. Modifying <code>ZA0.B</code> implicitly modifies interleaved segments of <code>ZA0.S</code>, <code>ZA1.S</code>, etc.
             </p>
             <div className="h-48 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-center relative overflow-hidden my-4 group">
                <div className="grid grid-cols-4 grid-rows-4 w-full h-full opacity-10 divide-x divide-y divide-slate-700 border-slate-500 absolute inset-0">
@@ -276,33 +405,34 @@ function MemoryTab() {
               * The 32-bit (Word) arrays are 4 interleaved grids mapping strictly to modulo-4 offsets of identical rows.
             </p>
           </div>
-          
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-slate-200 mb-2">Vertical vs Horizontal Slices</h3>
-              <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                Instead of loading whole matrices, SVE mandates chunking memory into <strong>1D Vector Slices</strong> horizontally or vertically.
-              </p>
+        </section>
+        
+        <section>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 h-full flex flex-col">
+            <h3 className="text-lg font-bold text-slate-200 mb-2">Vertical vs Horizontal Slices</h3>
+            <p className="text-sm text-slate-400 leading-relaxed mb-6">
+              Instead of loading whole matrices, SVE mandates chunking memory into <strong>1D Vector Slices</strong> horizontally or vertically.
+            </p>
+            
+            <div className="space-y-4 flex-grow">
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <h4 className="text-emerald-400 font-mono text-sm mb-1">za.s[w0, 0, vgx4]</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Addresses a set of <strong>Vertical (v)</strong> grouped slices. <code>vgx4</code> denotes a multiple vertical slice group spanning the vertical width of the matrix tiles, fundamental to 4-way operations in SME2.
+                </p>
+              </div>
               
-              <div className="space-y-4">
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                  <h4 className="text-emerald-400 font-mono text-sm mb-1">za.s[w0, 0, vgx4]</h4>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Addresses a set of <strong>Vertical (v)</strong> grouped slices. <code>vgx4</code> denotes a multiple vertical slice group spanning the vertical width of the matrix tiles, fundamental to 4-way operations in SME2.
-                  </p>
-                </div>
-                
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                  <h4 className="text-cyan-400 font-mono text-sm mb-1">za1h.s[w0, 3]</h4>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Targets a single <strong>Horizontal (h)</strong> slice on Word Tile ZA1. It computes the row index using the base scalar register <code>W0</code> with an immediate offset of <code>3</code>.
-                  </p>
-                </div>
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <h4 className="text-cyan-400 font-mono text-sm mb-1">za1h.s[w0, 3]</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Targets a single <strong>Horizontal (h)</strong> slice on Word Tile ZA1. It computes the row index using the base scalar register <code>W0</code> with an immediate offset of <code>3</code>.
+                </p>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
+
     </div>
   );
 }
@@ -323,80 +453,9 @@ function Card({ title, icon, children }: { title: string, icon: React.ReactNode,
   );
 }
 
-function ProbeDataTab() {
-  return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <section>
-        <h2 className="text-2xl font-bold text-slate-100 flex items-center mb-6">
-          <Activity className="w-6 h-6 mr-3 text-emerald-400" />
-          Live Hardware Ground Truth
-        </h2>
-        <div className="text-slate-400 mb-6 bg-slate-900 border border-slate-800 p-5 rounded-xl">
-          <p>This data is not hardcoded. These capabilities were extracted locally by compiling raw hexadecimal opcode payloads and tracking hardware traps. The output proves the exact capabilities of this silicon. Errors show the actual signal received (SIGILL, SIGSEGV, SIGBUS) and exit codes.</p>
-          <div className="mt-3 text-xs text-slate-500 font-mono flex items-center">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2"></span>
-            Executed at: {new Date(probeData.timestamp).toLocaleString()}
-          </div>
-        </div>
-        
-        <h3 className="text-lg font-bold text-slate-200 mb-4 mt-8">System Vector Configuration</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-10">
-          {Object.entries(probeData.sysInfo).map(([key, value]) => (
-            <div key={key} className="bg-slate-900/80 border border-slate-800 rounded-lg p-3 flex flex-col justify-center items-center">
-              <div className="text-[10px] text-slate-500 mb-1 tracking-wider uppercase text-center">{key.replace("FEAT_", "")}</div>
-              <div className={`font-mono text-lg font-bold ${value === "1" ? "text-emerald-400" : "text-slate-600"}`}>{String(value)}</div>
-            </div>
-          ))}
-        </div>
-
-        <h3 className="text-lg font-bold text-slate-200 mb-4">Hardware Capability Matrix</h3>
-        <div className="space-y-6">
-          {probeData.sections.filter(sec => sec.items[0] && !(sec.items[0] as any).label).map((sec, idx) => (
-            <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden mt-6">
-              <div className="bg-slate-900 px-5 py-3 border-b border-slate-800">
-                <h4 className="font-semibold text-slate-300 text-sm">{sec.name.replace(/\[.*\]/, "").trim()}</h4>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800">
-                {sec.items.map((item: any, i: number) => {
-                  const statusConfig = item.status === "ok"
-                    ? { bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", label: "SUPPORTED" }
-                    : item.status === "compile_fail"
-                    ? { bg: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20", label: "COMPILE FAIL" }
-                    : item.status === "sigsegv"
-                    ? { bg: "bg-orange-500/10 text-orange-400 border-orange-500/20", label: "SIGSEGV" }
-                    : item.status === "sigbus"
-                    ? { bg: "bg-orange-500/10 text-orange-400 border-orange-500/20", label: "SIGBUS" }
-                    : { bg: "bg-red-500/10 text-red-400 border-red-500/20", label: item.status === "sigill" ? "SIGILL" : (item.status || "TRAP").toUpperCase() };
-                  return (
-                  <div key={i} className="bg-slate-950 p-4 flex flex-col justify-center">
-                    <div className="flex justify-between items-start mb-2">
-                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 border ${statusConfig.bg}`}>
-                         {statusConfig.label}
-                       </span>
-                       {item.signal != null && item.status !== "ok" && (
-                         <span className="text-[9px] font-mono text-slate-600 ml-2">
-                           exit={item.exitCode} sig={item.signal}
-                         </span>
-                       )}
-                    </div>
-                    <code className="block font-mono text-sm text-cyan-300 mb-1 whitespace-pre-wrap">{item.instruction}</code>
-                    {item.description && <div className="text-[11px] text-slate-500">{item.description}</div>}
-                    {item.error && <div className="text-[10px] text-red-400/60 font-mono mt-1 truncate">{item.error}</div>}
-                  </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>      </section>
-    </div>
-  );
-}
-
 function ThroughputTab() {
-  const throughputSections = probeData.sections.filter(sec => sec.items[0] && !!(sec.items[0] as any).label);
-
+  const throughputSections = probeData.sections.filter((sec: any) => sec.items[0] && !!sec.items[0].label);
+  
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section>
@@ -414,7 +473,7 @@ function ThroughputTab() {
 
         {throughputSections.length > 0 && (
           <div className="space-y-6 mt-8">
-            {throughputSections.map((sec, idx) => (
+            {throughputSections.map((sec: any, idx: number) => (
               <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden mt-6">
                 <div className="bg-slate-900 px-5 py-3 border-b border-slate-800">
                   <h4 className="font-semibold text-slate-300 text-sm">{sec.name.replace(/\[.*\]/, "").trim()}</h4>
@@ -452,7 +511,7 @@ function ThroughputTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {throughputData.results.map((row, idx) => (
+                {throughputData.results.map((row: any, idx: number) => (
                   <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
                     <td className="px-6 py-4 font-medium text-slate-200">{row.test}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.bnns > 0 ? row.bnns.toFixed(3) : '--'}</td>

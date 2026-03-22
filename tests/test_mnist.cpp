@@ -281,32 +281,31 @@ int main(int argc, char** argv) {
     memset(test_fp, 0, TEST_IMAGES * inp_pad * sizeof(float));
     {
         simd_float16 inv255 = 1.0f / 255.0f;
-        simd_float16 half = 0.5f;
         for (int s = 0; s < TRAIN_IMAGES; s++) {
             const simd_uchar64* in = (const simd_uchar64*)&train_img[s * INPUT_DIM];
             simd_float16* out = (simd_float16*)&train_fp[s * inp_pad];
             for (int i = 0; i < INPUT_DIM / 64; i++) {
                 simd_uchar16* q = (simd_uchar16*)&in[i];
-                out[i * 4]     = simd_float(q[0]) * inv255 - half;
-                out[i * 4 + 1] = simd_float(q[1]) * inv255 - half;
-                out[i * 4 + 2] = simd_float(q[2]) * inv255 - half;
-                out[i * 4 + 3] = simd_float(q[3]) * inv255 - half;
+                out[i * 4]     = simd_float(q[0]) * inv255;
+                out[i * 4 + 1] = simd_float(q[1]) * inv255;
+                out[i * 4 + 2] = simd_float(q[2]) * inv255;
+                out[i * 4 + 3] = simd_float(q[3]) * inv255;
             }
-            simd_uchar16 tail = *(simd_uchar16*)&train_img[s * INPUT_DIM + (INPUT_DIM / 64) * 64];
-            out[INPUT_DIM / 16] = simd_float(tail) * inv255 - half;
+            simd_uchar16 tail = *(simd_uchar16*)&train_img[s * INPUT_DIM + 768];
+            out[48] = simd_float(tail) * inv255;
         }
         for (int s = 0; s < TEST_IMAGES; s++) {
             const simd_uchar64* in = (const simd_uchar64*)&test_img[s * INPUT_DIM];
             simd_float16* out = (simd_float16*)&test_fp[s * inp_pad];
             for (int i = 0; i < INPUT_DIM / 64; i++) {
                 simd_uchar16* q = (simd_uchar16*)&in[i];
-                out[i * 4]     = simd_float(q[0]) * inv255 - half;
-                out[i * 4 + 1] = simd_float(q[1]) * inv255 - half;
-                out[i * 4 + 2] = simd_float(q[2]) * inv255 - half;
-                out[i * 4 + 3] = simd_float(q[3]) * inv255 - half;
+                out[i * 4]     = simd_float(q[0]) * inv255;
+                out[i * 4 + 1] = simd_float(q[1]) * inv255;
+                out[i * 4 + 2] = simd_float(q[2]) * inv255;
+                out[i * 4 + 3] = simd_float(q[3]) * inv255;
             }
-            simd_uchar16 tail = *(simd_uchar16*)&test_img[s * INPUT_DIM + (INPUT_DIM / 64) * 64];
-            out[INPUT_DIM / 16] = simd_float(tail) * inv255 - half;
+            simd_uchar16 tail = *(simd_uchar16*)&test_img[s * INPUT_DIM + 768];
+            out[48] = simd_float(tail) * inv255;
         }
     }
     printf("  Data normalized\n");
@@ -332,7 +331,7 @@ int main(int argc, char** argv) {
     }
     auto& eval_ctx = workers[0];
     const float lr = 0.01f;
-    const int epochs = 3;
+    const int epochs = 10;
     int num_batches = TRAIN_IMAGES / BATCH_SIZE;
     printf(
         "Training: %d epochs, lr=%g, batch=%d, %d batches/epoch, %d threads\n\n",

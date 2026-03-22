@@ -39,3 +39,5 @@ hftoken.txt
 !run_build.sh
 # Agent related
 CLAUDE.md
+# MNIST raw data
+tests/mnist/MNIST/raw/

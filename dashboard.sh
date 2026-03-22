@@ -8,15 +8,10 @@ cd "$(dirname "$0")"
 # Detect Chip Type
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9]' | head -n 1)
 if [ -z "$CHIP" ]; then
-    CHIP="Silicon"
+    CHIP=""
 fi
 echo -e " "
-echo -e "\033[35m______________________________________________________\033[0m"
-echo -e "\033[36m     __     _____ ______  _______ __   _ _______\033[0m"
-echo -e "\033[36m     |        |   |_____] |_____| | \  | |______\033[0m"
-echo -e "\033[36m     |_____ __|__ |_____] |     | |  \_| |______\033[0m"
-echo -e "\033[35m──────────────────────────────────────────────────────\033[0m"
-echo -e "\033[33m       Apple Silicon $CHIP Hardware Dashboard\033[0m"
+echo -e "\033[35m────────\033[36m Apple Silicon $CHIP Hardware Dashboard \033[35m────────\033[0m"
 echo " "
 echo "This script will take ~5 minutes to run since it performs live hardware probes"
 echo "and builds a standalone React dashboard package."
@@ -45,4 +40,10 @@ OUT_FILE="../dashboards/local_${CHIP}_results.html"
 cp dist/index.html "$OUT_FILE"
 echo "Saved locally to: $OUT_FILE"
 # Open the static packaged HTML file.
+echo -e " "
+echo -e "\033[35m────────\033[36m Done! \033[35m────────\033[0m"
+echo " "
+echo "If your browser doesn't open automatically, you can find the dashboard at: $OUT_FILE"
+echo -e "\033[36mCheers! 🥂\033[0m"
+echo ""
 open "$OUT_FILE"

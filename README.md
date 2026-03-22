@@ -2,7 +2,7 @@
 
 Hand-written ARM SME2 assembly kernels for the Apple Neural Engine (M4).
 
-153 single-threaded kernels covering the standard ML operator taxonomy: elementwise arithmetic, activations, reductions, matrix multiply, convolution, normalization, attention, losses, and optimizers. All kernels target `armv9-a+sme2+sve2+sme-lutv2`.
+A demonstration of Apple Silicon's SME (Scalable Matrix Extension) capabilities, featuring a custom bytecode interpreter and a fully functional multi-threaded MNIST training example bypassing standard ML frameworks. All code targets `armv9-a+sme2+sve2+sme-lutv2`.
 
 ## Why do you call it the Neural Engine?
 
@@ -40,6 +40,8 @@ I did some performance benchmarks and found:
 That's when I started to get deja-vu. I had heard of something that was some sort of fast 8-bit matrix multiply unit, wasn't really optimized for FP16, and had some weird quirks. That's when it hit me. The four separate 4096-byte `za` matrix arrays I was driving across the CPU cores were functioning identically to Apple's software stacks that target the Neural Engine.
 
 ### Further Testing
+
+> **Note:** I currently have an open Apple Support ticket investigating performance discrepancies I'm seeing where my M4 actually outperforms my newer M5 chip in certain SME throughput benchmarks. If it weren't for the deeply integrated hardware probes in this project, I doubt I would have ever noticed the discrepancy. I'll update this repository when I hear back from their hardware engineering team.
 
 We know that Apple advertises the "Neural Engine" as being able to do 38 TOPS of compute. We ran a comprehensive benchmark measuring four independent compute paths — GPU (Metal `char4` INT8), CPU SME (`smopa` INT8), Apple's BNNS INT8 (`BNNSFilterCreateLayerFullyConnected` with `BNNSDataTypeInt8`), and NEON FP32 FMA — both in isolation and in every combination, for 10 seconds each, with heartbeat logging and proven-concurrent overlap windows.
 
@@ -97,10 +99,13 @@ Absolutely not. Test and use at your own risk. I will do my best to make them ea
 - CMake 3.19+
 - C++20 compiler (Apple Clang recommended)
 - Node.js (20+) and npm (for generating the UI Dashboard)
+- Python 3.10+ (with `torch` and `torchvision` installed if you wish to run the PyTorch benchmark comparisons)
 
 ## Building the Live Hardware UI Dashboard
 
-This repository features a React-based UI single-file dashboard that dynamically compiles and runs probing payloads to uncover your CPU's hardware matrix limits.
+This repository features a React-based UI single-file dashboard that dynamically compiles and runs probing payloads to uncover your CPU's hardware matrix limits. 
+
+It also runs a live MNIST training benchmark comparing our custom SME C++ engine against PyTorch CPU (Eager) to demonstrate the raw throughput (samples/sec) achievable by bypassing standard framework overhead.
 
 To build and open the dashboard:
 
@@ -113,67 +118,76 @@ This will automatically:
 2. Build the Vite React application down into a single `dist/index.html` static file.
 3. Serve it directly in your browser.
 
-## Build the C++ Static Library
+## Quick Start: Training MNIST with SME
 
-```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(sysctl -n hw.logicalcpu)
-```
+For a fully working implementation that showcases how to use the SME bytecode interpreter to build a multi-threaded matrix multiplication and training loop from scratch, check out the [`tests/test_mnist.cpp`](tests/test_mnist.cpp) file. 
 
-Or with Ninja:
+To build and run the test suite manually:
 
 ```bash
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
-ninja
+cmake --build .
+./bin/test_mnist
 ```
 
-## Install
+## Adding `ane` To Your Project
+
+`ane` is a **header-only** C++20 library. The entire machine-code generation and interpretation process happens inline.
+
+You can install it globally:
 
 ```bash
-cmake --install build --prefix ~/.local
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+sudo cmake --install .
 ```
 
-## Usage
-
-```cpp
-#include <ane/ane.hpp>
-
-// Single-threaded elementwise add
-float a[1024], b[1024], c[1024];
-ane::kernel::add_fp32(a, b, c, 1024);
-
-// Matrix multiply
-float A[64*128], B[128*32], C[64*32];
-ane::kernel::matmul_fp32(A, B, C, 64, 32, 128);
-```
-
-Link against the static library:
+And link it via CMake:
 
 ```cmake
 find_package(ane REQUIRED)
 target_link_libraries(my_app PRIVATE ane::ane)
 ```
 
-## Kernel Categories
+## Usage (Bytecode Dispatch API)
 
-| Category | Examples |
-|---|---|
-| Elementwise | `add_fp32`, `mul_fp32`, `div_fp32`, `fma_fp32`, `scalar_mul_fp32` |
-| Activations | `relu_fp32`, `gelu_fp32`, `silu_fp32`, `sigmoid_fp32`, `mish_fp32`, `elu_fp32` |
-| Reductions | `reduce_sum_fp32`, `reduce_max_fp32`, `dot_fp32`, `sumsqr_fp32`, `argmax_fp32` |
-| Matrix Multiply | `matmul_fp32`, `matmul_int8`, `matmul_bfp16`, transposed variants |
-| Convolution | `conv2d_fp32`, fused bias/relu/bn/swish/gelu variants, backward passes |
-| Normalization | `layernorm_fp32`, `fused_rms_norm_scale_fp32`, `fused_batchnorm_relu_fp32` |
-| Attention | `flash_attn_*`, `sdp_attn_*`, `gqa_attn_*`, `cross_attn_*`, `rope_fp32` |
-| Losses | `mse_loss_fp32`, `cross_entropy_loss_fp32`, `bce_loss_fp32`, `mae_loss_fp32` |
-| Optimizers | `adam_fp32`, `sgd_fp32`, `param_update_fp32` |
-| Quantization | `quantize_fp32_int8`, `dequantize_int8_fp32`, `q8_0_matvec` |
-| Type Convert | `fp32_to_bf16`, `bf16_to_fp32`, `fp32_to_int32` |
-| Bitwise | `and_u32`, `or_u32`, `xor_u32`, `shl_u32`, `shr_u32` |
-| LUT | `tbl_u8`, `luti4_u8`, `luti2_u8` |
-| Stochastic | `dropout_fp32`, `gaussian_noise_fp32` |
+All neural engine operations are now encoded as custom `ane::Op` bytecodes which are passed to the hardware-accelerated interpreter via `ane::dispatch`.
+
+Here is an example showing a fused INT8 8-bit quantized matrix multiplication pass:
+
+```cpp
+#include <ane/ane.hpp>
+#include <cstring>
+
+int main() {
+    int batch_size = 50;
+    int HIDDEN_DIM = 128;
+    int INPUT_DIM = 784;
+
+    // All memory should be 64-byte aligned and padded to multiples of 16 for SME vector bounds
+    float* hidden = ... // allocation
+    float* xi     = ... // input data
+    float* W1     = ... // model weights
+
+    // Forward Pass: Matrix multiply (dense fused 8-bit quantization)
+    memset(hidden, 0, batch_size * HIDDEN_DIM * sizeof(float));
+
+    ane::dispatch(
+        ane::Op::dense_fused_i8, 
+        batch_size,     // Output rows (M)
+        HIDDEN_DIM,     // Output cols (N)
+        INPUT_DIM,      // Inner dim (K)
+        1.0f,           // Float scaling
+        true,           // Apply Fused-ReLU Activation
+        xi,             // Matrix A (batch_size × INPUT_DIM)
+        W1,             // Matrix B (INPUT_DIM × HIDDEN_DIM)
+        hidden          // Matrix C (Output)
+    );
+
+    return 0;
+}
+```
 
 ## AI Assistants & Contributors
 
@@ -183,6 +197,3 @@ Thanks to Gemini 3.1 pro for assembling the React dashboards, benchmark integrat
 ## License
 
 MIT. See [LICENSE](LICENSE) for details.
-
-
-Note to self: The FPMR (Floating-Point Mode Register) controls the FP8 format. Without setting it, FMLALL treated our bytes as raw integers (56 × 56 = 3136). We need to write the correct format bits to FPMR before executing FMLALL.
