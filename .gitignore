@@ -1,5 +1,7 @@
 build/
 .cache/
+temp/
+hftoken.txt
 
 # Prerequisites
 *.d
@@ -44,4 +46,4 @@ build/
 *.dwo
 
 # Build script
-!run_build.shtry_stream
+!run_build.sh
