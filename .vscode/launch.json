@@ -9,9 +9,7 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "CMake Debug",
-            "env": {
-                "PSYNE_DEBUG": "1"
-            },
+            "env": {},
             "exitCommands": [
                 "exit"
             ]

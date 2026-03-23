@@ -28,7 +28,7 @@ I recently gained access to some ASUS GX10's, which incidentally have ARM CPU's 
 
 Instead, Claude built the tests on my M4. Which ran. Cool.
 
-So I ran a full probe (well, mostly full) which can be [found here](probe.txt).
+So I ran a full probe (well, mostly full) which can be [found here](probes/probe.sh).
 
 I did some performance benchmarks and found:
 - `bfloat16` `fmopa` operations were the exact same speed as 32-bit float `fmopa` operations. This shouldn't be the case since they take up half the memory bandwidth?

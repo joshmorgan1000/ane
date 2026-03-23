@@ -399,24 +399,11 @@ public:
         return data_;
     }
     /** --------------------------------------------------------------------------------- Clone
-     * @brief Creates a clone of the z_stream. This is useful if you want to create a
-     * copy of the stream with the same number of zvecs, optionally copying the data
-     * as well.
-     * @param copy_bytes If true, the data from the original stream will be copied to the
-     * new stream. If false, the clone will be pointed to the same data without copying
-     * (use with caution). This is useful for cases where you want to have multiple
-     * z_stream instances that share the same underlying data without the overhead of
-     * copying, but it should be used carefully to avoid unintended side effects from
-     * modifying the shared data.
+     * @brief Creates a deep copy of the z_stream with the same number of zvecs and data.
      */
-    z_stream clone(bool copy_bytes = false) const {
+    z_stream clone() const {
         z_stream copy(num_zvecs_);
-        if (copy_bytes) {
-            std::memcpy(copy.data_, data_, num_zvecs_ << 6); // num_zvecs * 64 bytes
-        } else {
-            std::free(copy.data_);
-            copy.data_ = data_;
-        }
+        std::memcpy(copy.data_, data_, num_zvecs_ << 6); // num_zvecs * 64 bytes
         return copy;
     }
 };
