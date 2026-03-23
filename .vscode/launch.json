@@ -5,7 +5,7 @@
             "name": "Debug",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/ane_bench",
+            "program": "${workspaceFolder}/build/bin/test_mnist",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "CMake Debug",

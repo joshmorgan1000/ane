@@ -38,35 +38,37 @@ void stream_exec(const uint8_t* data, size_t size);
  */
 enum class Op : uint8_t {
     reserved_0x00                = 0x00,  ///< Slot 0 reserved (dispatch exits at bytecodes end)
-    zero_za                      = 0x01,
-    acc_smopa                    = 0x02,  // +u32 k_steps, 2 operands
-    acc_umopa                    = 0x03,
-    acc_usmopa                   = 0x04,
-    acc_sumopa                   = 0x05,
-    store_tiles                  = 0x06,  // 1 operand (output ptr)
-    load_rows_i8                 = 0x07,  // 1 operand
-    load_cols_i8                 = 0x08,  // 1 operand
-    smopa_2x2                    = 0x09,  // no operands
-    umopa_2x2                    = 0x0A,
-    usmopa_2x2                   = 0x0B,
-    load_bias                    = 0x0C,  // load int32 bias into ZA, 1 operand
-    scale_store                  = 0x0D,  // int32→float×scale→store, +f32 imm, 1 operand
-    dense_fused_i8               = 0x0E,  // fused quantize+pack+matmul+dequant(+relu)
-    dense_scale_i8               = 0x0F,  // pre-packed matmul+dequant
-    elementwise_add_fp32         = 0x10,  // fused elementwise add
-    elementwise_scaled_add_fp32  = 0x11,  // out = a + scale*b
-    elementwise_mul_fp32         = 0x12,  // out = a * b
-    relu_backward_fp32           = 0x13,  // out = (a>0)?b:0
-    quantize_fp32_i8             = 0x14,  // quantize fp32→i8
-    pack_rows_i8                 = 0x15,  // pack rows to dot4
-    pack_cols_i8                 = 0x16,  // pack cols to dot4
-    scatter_tile_fp32            = 0x17,  // scatter tile to matrix
-    transpose_fp32               = 0x18,  // transpose M×N
-    softmax_argmax_fp32          = 0x19,  // batched softmax + argmax
-    luti4_op                     = 0x1A,  // 4-bit table lookup via ZT0, [count:u32][elem_size:u8], 3 ops
-    luti2_op                     = 0x1B,  // 2-bit table lookup via ZT0, [count:u32][elem_size:u8], 3 ops
-    dense_fp32                   = 0x1C,  // full fp32 matmul via FMOPA (+optional relu)
-    NUM_OPCODES                  = 0x1D,
+    zero_za                      = 0x01,  ///< Zero all ZA tiles
+    acc_smopa                    = 0x02,  ///< Fused ld1b+smopa loop, +u32 k_steps, 2 operands
+    acc_umopa                    = 0x03,  ///< Fused ld1b+umopa loop
+    acc_usmopa                   = 0x04,  ///< Fused ld1b+usmopa loop
+    acc_sumopa                   = 0x05,  ///< Fused ld1b+usmopa (swapped operands) loop
+    store_tiles                  = 0x06,  ///< Store 2x2 tile group as row-major int32, 1 operand
+    smopa_2x2                    = 0x07,  ///< 4x smopa on pre-loaded z0-z3, no operands
+    umopa_2x2                    = 0x08,  ///< 4x umopa on pre-loaded z0-z3
+    usmopa_2x2                   = 0x09,  ///< 4x usmopa on pre-loaded z0-z3
+    load_bias                    = 0x0A,  ///< Load int32 bias into ZA tiles, 1 operand
+    scale_store                  = 0x0B,  ///< int32->float*scale->store, +f32 imm, 1 operand
+    elementwise_add_fp32         = 0x0C,  ///< out = a + b, [count:u32], 3 operands
+    elementwise_scaled_add_fp32  = 0x0D,  ///< out = a + scale*b, [count:u32][scale:f32], 3 operands
+    elementwise_mul_fp32         = 0x0E,  ///< out = a * b, [count:u32], 3 operands
+    relu_backward_fp32           = 0x0F,  ///< out = (a>0)?b:0, [count:u32], 3 operands
+    scatter_tile_fp32            = 0x10,  ///< Scatter GROUP_DIM tile to strided matrix
+    transpose_fp32               = 0x11,  ///< Transpose M*N fp32 matrix
+    softmax_argmax_fp32          = 0x12,  ///< Batched softmax + cross-entropy backward + argmax
+    luti4_op                     = 0x13,  ///< 4-bit table lookup via ZT0, [count:u32][elem_size:u8]
+    luti2_op                     = 0x14,  ///< 2-bit table lookup via ZT0, [count:u32][elem_size:u8]
+    dense_fp32                   = 0x15,  ///< Full fp32 matmul via FMOPA (+optional relu)
+    count_matches                = 0x16,  ///< Compare int32 pred[] vs uint8 labels[], count matches
+    reduce_sum_fp32              = 0x17,  ///< Horizontal sum of fp32 array
+    dense_i8                     = 0x18,  ///< INT8 matmul via SMOPA: C = dequant(A_i8 @ B_i8) (+relu)
+    quantize_fp32_i8             = 0x19,  ///< Quantize fp32 to signed int8 per-tensor symmetric
+    dequantize_i8_fp32           = 0x1A,  ///< Dequantize signed int8 to fp32
+    pack_b_i8                    = 0x1B,  ///< Pack K*N row-major i8 into SMOPA panel format
+    quantize_fp32_i8_channelwise = 0x1C,  ///< Per-row symmetric quantize fp32 to i8
+    transpose_i8                 = 0x1D,  ///< Transpose M*N int8 matrix to N*M
+    dense_u8s8                   = 0x1E,  ///< UINT8×INT8 matmul via USMOPA: C = dequant(A_u8 @ B_i8) (+relu)
+    NUM_OPCODES                  = 0x1F,
 };
 /** --------------------------------------------------------------------------------------------------------- Opcode Dispatch
  * @brief Dispatches an operation to the assembly interpreter by encoding the opcode and its arguments into a
