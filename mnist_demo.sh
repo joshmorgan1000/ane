@@ -23,10 +23,12 @@ fi
 # Compile
 echo "Compiling..."
 mkdir -p build
-clang++ -std=c++20 -arch arm64 -march=armv9-a+sme2+sve2+sme-lutv2 -O3 \
+clang++ -std=c++20 -arch arm64 -O3 \
     -I include \
+    -Xassembler -march=armv9-a+sme2 \
     -o build/test_mnist \
     tests/test_mnist.cpp \
+    src/bytecode_interpreter.s \
     2>&1
 echo "Done."
 echo ""
