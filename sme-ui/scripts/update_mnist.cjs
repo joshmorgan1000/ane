@@ -2,12 +2,12 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('Running test_mnist benchmark...');
+console.log('Building and running test_mnist benchmark via mnist_demo.sh...');
 let smeOutput = '';
 try {
-  smeOutput = execSync('./build/bin/test_mnist', { cwd: path.join(__dirname, '../../') }).toString();
+  smeOutput = execSync('bash mnist_demo.sh', { cwd: path.join(__dirname, '../../') }).toString();
 } catch (e) {
-  console.error('Failed to run test_mnist', e.message);
+  console.error('Failed to run mnist_demo.sh', e.message);
   smeOutput = e.stdout ? e.stdout.toString() : '';
 }
 

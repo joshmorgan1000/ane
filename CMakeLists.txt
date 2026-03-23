@@ -49,6 +49,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         $<$<COMPILE_LANGUAGE:CXX>:-fno-finite-math-only>
         $<$<COMPILE_LANGUAGE:CXX>:-funroll-loops>
         $<$<COMPILE_LANGUAGE:CXX>:-ftree-vectorize>
+        $<$<COMPILE_LANGUAGE:CXX>:-O3>
     )
     # Silence specific warnings
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
@@ -139,7 +140,6 @@ if(SME2_COMPILE_RESULT)
 else()
     message(STATUS "  SME2: NOT AVAILABLE (compilation failed)")
 endif()
-
 if(NOT ANE_HAS_SME2)
     message(FATAL_ERROR
         "ane requires ARM SME2 (Apple M4 or compatible).\n"
@@ -147,10 +147,16 @@ if(NOT ANE_HAS_SME2)
     )
 endif()
 # ── Header-only library (inline asm in ane.hpp) ──
-add_library(ane INTERFACE)
-target_include_directories(ane INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+add_library(ane STATIC
+    src/bytecode_interpreter.s
+)
+target_include_directories(ane PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+)
+set_source_files_properties(
+    src/bytecode_interpreter.s
+    PROPERTIES COMPILE_FLAGS "-march=armv9-a+sme2"
 )
 # ── Install rules ──
 include(GNUInstallDirs)

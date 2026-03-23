@@ -31,6 +31,7 @@ static constexpr int OUTPUT_DIM = 10;
 static constexpr int TRAIN_IMAGES = 60000;
 static constexpr int TEST_IMAGES = 10000;
 static constexpr int BATCH_SIZE = 50;
+alignas(64) static const float zero_bias[800] = {};  ///< Zero-filled accumulator seed for dense_fp32 (no bias)
 /** --------------------------------------------------------------------------------------------------------- Utility Functions
  * @brief Pads the given count up to the next multiple of 16 (SME SVL) for buffer allocation.
  * @param count The original count of elements.
@@ -105,18 +106,19 @@ struct WorkerCtx {
     static WorkerCtx create(int batch, int inp_pad, int hid_pad, int out_pad) {
         int bp = pad_tile(batch);   ///< Batch padded to 32 for tile-safe stores
         int ip = pad_tile(INPUT_DIM); ///< Input dim padded to 32 for gradient output
+        int op = pad_tile(out_pad);   ///< Output dim padded to 32 for tile-safe stores
         return {
             (float*)alloc64(bp * hid_pad * sizeof(float)),
-            (float*)alloc64(bp * out_pad * sizeof(float)),
-            (float*)alloc64(bp * out_pad * sizeof(float)),
-            (float*)alloc64(bp * out_pad * sizeof(float)),
+            (float*)alloc64(bp * op * sizeof(float)),
+            (float*)alloc64(bp * op * sizeof(float)),
+            (float*)alloc64(bp * op * sizeof(float)),
             (float*)alloc64(bp * hid_pad * sizeof(float)),
             (float*)alloc64(bp * hid_pad * sizeof(float)),
-            (float*)alloc64(pad_tile(out_pad) * HIDDEN_DIM * sizeof(float)),
+            (float*)alloc64(op * HIDDEN_DIM * sizeof(float)),
             (float*)alloc64(ip * pad_count(batch) * sizeof(float)),
             (float*)alloc64(hid_pad * pad_count(batch) * sizeof(float)),
             (float*)alloc64(ip * HIDDEN_DIM * sizeof(float)),
-            (float*)alloc64(HIDDEN_DIM * out_pad * sizeof(float)),
+            (float*)alloc64(HIDDEN_DIM * op * sizeof(float)),
             (int32_t*)alloc64(bp * sizeof(int32_t)),
         };
     }
@@ -215,16 +217,14 @@ static void worker(
         }
         const float* xi = &train_fp[batch_start * inp_pad];
         // ── Forward: xi(B×784) @ W1 → hidden(B×128) + relu ──
-        memset(ctx.hidden, 0, batch_size * hid_pad * sizeof(float));
         ane::dispatch(
             ane::Op::dense_fp32, batch_size, HIDDEN_DIM, INPUT_DIM,
-            1.0f, true, xi, W1, ctx.hidden
+            1.0f, true, xi, W1, zero_bias, ctx.hidden
         );
         // ── Forward: hidden(B×128) @ W2 → logits(B×10) ──
-        memset(ctx.logits, 0, batch_size * out_pad * sizeof(float));
         ane::dispatch(
             ane::Op::dense_fp32, batch_size, out_pad, HIDDEN_DIM,
-            1.0f, false, ctx.hidden, W2, ctx.logits
+            1.0f, false, ctx.hidden, W2, zero_bias, ctx.logits
         );
         // ── Pad logits columns 10-15 with -1000.0f per row (SIMD bitselect) ──
         {
@@ -247,19 +247,16 @@ static void worker(
         }
         total_correct->fetch_add(correct, std::memory_order_relaxed);
         // ── Backward: transpose hidden(B×128) → h_T(128×B), h_T @ g_out → g_W2_sample(128×10) ──
-        memset(ctx.h_T, 0, hid_pad * pad_count(batch_size) * sizeof(float));
         ane::dispatch(ane::Op::transpose_fp32, batch_size, HIDDEN_DIM, ctx.hidden, ctx.h_T);
-        memset(ctx.g_W2_sample, 0, HIDDEN_DIM * out_pad * sizeof(float));
         ane::dispatch(
             ane::Op::dense_fp32, HIDDEN_DIM, out_pad, batch_size,
-            1.0f, false, ctx.h_T, ctx.g_out, ctx.g_W2_sample
+            1.0f, false, ctx.h_T, ctx.g_out, zero_bias, ctx.g_W2_sample
         );
         // ── Backward: transpose W2 → W2_T(out_pad×128), g_out @ W2_T → g_hid(B×128) ──
         ane::dispatch(ane::Op::transpose_fp32, HIDDEN_DIM, out_pad, W2, ctx.W2_T);
-        memset(ctx.g_hid, 0, batch_size * hid_pad * sizeof(float));
         ane::dispatch(
             ane::Op::dense_fp32, batch_size, HIDDEN_DIM, out_pad,
-            1.0f, false, ctx.g_out, ctx.W2_T, ctx.g_hid
+            1.0f, false, ctx.g_out, ctx.W2_T, zero_bias, ctx.g_hid
         );
         // ── ReLU backward: g_hid_r = mask(hidden) * g_hid ──
         ane::dispatch(
@@ -267,12 +264,10 @@ static void worker(
             ctx.hidden, ctx.g_hid, ctx.g_hid_r
         );
         // ── Backward: transpose xi(B×784) → x_T(784×B), x_T @ g_hid_r → g_W1_sample(784×128) ──
-        memset(ctx.x_T, 0, pad_tile(INPUT_DIM) * pad_count(batch_size) * sizeof(float));
         ane::dispatch(ane::Op::transpose_fp32, batch_size, INPUT_DIM, xi, ctx.x_T);
-        memset(ctx.g_W1_sample, 0, INPUT_DIM * HIDDEN_DIM * sizeof(float));
         ane::dispatch(
             ane::Op::dense_fp32, INPUT_DIM, HIDDEN_DIM, batch_size,
-            1.0f, false, ctx.x_T, ctx.g_hid_r, ctx.g_W1_sample
+            1.0f, false, ctx.x_T, ctx.g_hid_r, zero_bias, ctx.g_W1_sample
         );
         // ── SGD update: W -= (lr/B) * gradient (Hogwild, races OK) ──
         float step = -lr / batch_size;
@@ -389,15 +384,13 @@ int main(int argc, char** argv) {
         int tc = 0;
         for (int s = 0; s < TEST_IMAGES; s++) {
             const float* xi = &test_fp.get()[s * inp_pad];
-            memset(eval_ctx.hidden, 0, hid_pad * sizeof(float));
             ane::dispatch(
                 ane::Op::dense_fp32, 1, HIDDEN_DIM, INPUT_DIM,
-                1.0f, true, xi, W1.get(), eval_ctx.hidden
+                1.0f, true, xi, W1.get(), zero_bias, eval_ctx.hidden
             );
-            memset(eval_ctx.logits, 0, out_pad * sizeof(float));
             ane::dispatch(
                 ane::Op::dense_fp32, 1, out_pad, HIDDEN_DIM,
-                1.0f, false, eval_ctx.hidden, W2.get(), eval_ctx.logits
+                1.0f, false, eval_ctx.hidden, W2.get(), zero_bias, eval_ctx.logits
             );
             for (int i = OUTPUT_DIM; i < out_pad; i++) eval_ctx.logits[i] = -1000.0f;  // mask padding
             int32_t pred = 0;

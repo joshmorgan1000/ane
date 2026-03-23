@@ -28,6 +28,9 @@ if [ ! -d "node_modules" ]; then
     echo "📦 Installing UI dependencies..."
     npm install
 fi
+# Build the mnist demo so we can run it later
+echo "🏋️  Building MNIST pipeline..."
+bash mnist_demo.sh --build-only --clean
 # Run the backend probe to grab live CPU limits
 echo "🔍 Running hardware probes..."
 npm run fetch-data
