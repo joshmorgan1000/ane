@@ -142,11 +142,11 @@ else()
 endif()
 if(NOT ANE_HAS_SME2)
     message(FATAL_ERROR
-        "ane requires ARM SME2 (Apple M4 or compatible).\n"
+        "ane requires ARM SME2 (Apple M4/M5 or compatible).\n"
         "SME2 instruction probe failed on this system."
     )
 endif()
-# ── Header-only library (inline asm in ane.hpp) ──
+# ── Static library (ane.hpp + bytecode_interpreter.s) ──
 add_library(ane STATIC
     src/bytecode_interpreter.s
 )
