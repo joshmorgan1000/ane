@@ -35,6 +35,8 @@ TOTAL_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null || echo "$((PCORES + ECORES))"
 SME_THREADS=$PCORES
 # BNNS benefits from P-cores
 BNNS_THREADS=$PCORES
+# CBLAS SGEMM benefits from P-cores (AMX dispatch)
+CBLAS_THREADS=$PCORES
 # NEON can run on all cores; leave 1 for OS overhead
 NEON_THREADS=$((TOTAL_CORES - 1))
 [ "$NEON_THREADS" -lt 1 ] && NEON_THREADS=1
@@ -44,7 +46,7 @@ echo "   ${CHIP} — Concurrent Throughput Measurement"
 echo "   Each worker runs ${DURATION}s, logging timestamped heartbeats."
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "   Cores: ${PCORES} P-cores + ${ECORES} E-cores = ${TOTAL_CORES} total"
-echo "   SME threads: ${SME_THREADS}  BNNS threads: ${BNNS_THREADS}  NEON threads: ${NEON_THREADS}"
+echo "   SME threads: ${SME_THREADS}  BNNS threads: ${BNNS_THREADS}  CBLAS threads: ${CBLAS_THREADS}  NEON threads: ${NEON_THREADS}"
 echo "═══════════════════════════════════════════════════════════════════════"
 echo ""
 # =============================================================================
@@ -269,6 +271,71 @@ int main(int argc, char **argv) {
     return 0;
 }
 CSRC
+# ── CBLAS SGEMM worker (C, Nt threads) ─────────────────────────────────────
+cat > cblas_worker.c << 'CSRC'
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <time.h>
+#include <pthread.h>
+#include <Accelerate/Accelerate.h>
+#define MAT_N 2048
+#define OPS_PER_GEMM (2.0 * MAT_N * MAT_N * MAT_N)
+#ifndef NT
+#define NT 4
+#endif
+static volatile int g_stop = 0;
+static volatile double g_cumops = 0;
+static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+static void *worker(void *a) {
+    (void)a;
+    float *A = malloc(MAT_N * MAT_N * sizeof(float));
+    float *B = malloc(MAT_N * MAT_N * sizeof(float));
+    float *C = malloc(MAT_N * MAT_N * sizeof(float));
+    for (int i = 0; i < MAT_N * MAT_N; i++) {
+        A[i] = (float)(i % 17) * 0.1f;
+        B[i] = (float)(i % 13) * 0.1f;
+    }
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                MAT_N, MAT_N, MAT_N, 1.0f, A, MAT_N, B, MAT_N, 0.0f, C, MAT_N);
+    while (!g_stop) {
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    MAT_N, MAT_N, MAT_N, 1.0f, A, MAT_N, B, MAT_N, 0.0f, C, MAT_N);
+        pthread_mutex_lock(&g_lock);
+        g_cumops += OPS_PER_GEMM;
+        pthread_mutex_unlock(&g_lock);
+    }
+    free(A); free(B); free(C);
+    return NULL;
+}
+int main(int argc, char **argv) {
+    int duration = argc > 1 ? atoi(argv[1]) : 10;
+    pthread_t t[NT];
+    for (int i = 0; i < NT; i++) pthread_create(&t[i], NULL, worker, NULL);
+    struct timespec start, now;
+    clock_gettime(CLOCK_REALTIME, &start);
+    double prev_ops = 0;
+    setbuf(stdout, NULL);
+    while (1) {
+        struct timespec req = {0, 100000000};
+        nanosleep(&req, NULL);
+        clock_gettime(CLOCK_REALTIME, &now);
+        double elapsed = (now.tv_sec - start.tv_sec) + (now.tv_nsec - start.tv_nsec) / 1e9;
+        pthread_mutex_lock(&g_lock);
+        double ops = g_cumops;
+        pthread_mutex_unlock(&g_lock);
+        if (ops > prev_ops) {
+            uint64_t ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+            printf("%llu %.0f\n", (unsigned long long)ns, ops);
+            prev_ops = ops;
+        }
+        if (elapsed >= duration) break;
+    }
+    g_stop = 1;
+    for (int i = 0; i < NT; i++) pthread_join(t[i], NULL);
+    return 0;
+}
+CSRC
 # ── NEON FMA kernel (assembly) ──────────────────────────────────────────────
 cat > neon_kern.s << 'ASM'
 .section __TEXT,__text,regular,pure_instructions
@@ -386,12 +453,14 @@ clang -O0 -arch arm64 -DNT=$SME_THREADS -o _sme sme_worker.c sme_kern.o -lpthrea
 clang -c -arch arm64 neon_kern.s -o neon_kern.o 2>/dev/null || { echo "FAIL: neon asm"; exit 1; }
 clang -O0 -arch arm64 -DNT=$NEON_THREADS -o _neon neon_worker.c neon_kern.o -lpthread 2>/dev/null || { echo "FAIL: neon"; exit 1; }
 clang -O2 -arch arm64 -DNT=$BNNS_THREADS -o _bnns bnns_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: bnns"; exit 1; }
+clang -O2 -arch arm64 -DNT=$CBLAS_THREADS -o _cblas cblas_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: cblas"; exit 1; }
 swiftc -O -o _gpu gpu_worker.swift -framework Metal -framework Foundation 2>/dev/null || { echo "FAIL: gpu"; exit 1; }
 echo "  Done."
 echo ""
 echo "  GPU:  Metal char4 INT8 (1M threads × 10K iters per dispatch)"
 echo "  SME:  SMOPA int8 outer product (${SME_THREADS} threads)"
 echo "  BNNS: Accelerate INT8 FullyConnected [512,4096]×[4096,1024] (${BNNS_THREADS} threads)"
+echo "  CBLAS: Accelerate SGEMM FP32 2048×2048 (${CBLAS_THREADS} threads)"
 echo "  NEON: FP32 FMLA (${NEON_THREADS} threads)"
 echo ""
 # =============================================================================
@@ -476,8 +545,9 @@ run_test() {
         case "$w" in
             gpu)  ./_gpu  > "$WORK/gpu.log"  2>/dev/null & pids+=($!) ;;
             sme)  ./_sme  "$DURATION" > "$WORK/sme.log"  2>/dev/null & pids+=($!) ;;
-            bnns) ./_bnns "$DURATION" > "$WORK/bnns.log" 2>/dev/null & pids+=($!) ;;
-            neon) ./_neon "$DURATION" > "$WORK/neon.log" 2>/dev/null & pids+=($!) ;;
+            bnns)  ./_bnns  "$DURATION" > "$WORK/bnns.log"  2>/dev/null & pids+=($!) ;;
+            cblas) ./_cblas "$DURATION" > "$WORK/cblas.log" 2>/dev/null & pids+=($!) ;;
+            neon)  ./_neon  "$DURATION" > "$WORK/neon.log"  2>/dev/null & pids+=($!) ;;
         esac
     done
     for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null; done
@@ -500,20 +570,29 @@ echo ""
 run_test "GPU alone"                  gpu
 run_test "SME alone (${SME_THREADS}t)"             sme
 run_test "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
+run_test "CBLAS SGEMM alone (${CBLAS_THREADS}t)"    cblas
 run_test "NEON alone (${NEON_THREADS}t)"            neon
 # Pairs
 run_test "GPU + SME"                  gpu sme
+run_test "GPU + CBLAS"                gpu cblas
 run_test "GPU + BNNS"                 gpu bnns
 run_test "GPU + NEON"                 gpu neon
+run_test "SME + CBLAS"                sme cblas
 run_test "SME + BNNS"                 sme bnns
 run_test "SME + NEON"                 sme neon
+run_test "CBLAS + BNNS"               cblas bnns
+run_test "CBLAS + NEON"               cblas neon
 run_test "BNNS + NEON"                bnns neon
 # Triples
+run_test "GPU + SME + CBLAS"          gpu sme cblas
 run_test "GPU + SME + NEON"           gpu sme neon
+run_test "GPU + CBLAS + NEON"         gpu cblas neon
 run_test "GPU + BNNS + NEON"          gpu bnns neon
 run_test "GPU + SME + BNNS"           gpu sme bnns
 # Everything
+run_test "GPU + SME + CBLAS + NEON"   gpu sme cblas neon
 run_test "GPU + SME + BNNS + NEON"    gpu sme bnns neon
+run_test "GPU + SME + CBLAS + BNNS + NEON" gpu sme cblas bnns neon
 # Summary
 RESULTS_JSON=$(python3 -c "
 import json

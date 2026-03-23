@@ -8,7 +8,7 @@ import armDocsData from './data/arm_docs.json';
 const chip = probeData?.sysInfo?.chip || 'M-Series';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'registers' | 'operations' | 'throughput' | 'mnist'>('overview');
+  const [activeTab, setActiveTab] = useState<'mnist' | 'registers' | 'throughput' | 'overview' | 'operations'>('mnist');
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-300 font-sans selection:bg-cyan-900 selection:text-cyan-100 flex flex-col">
@@ -29,11 +29,11 @@ export default function App() {
         
         <nav className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 overflow-x-auto">
           {[
-            { id: 'overview', icon: MonitorPlay, label: 'Nuances & Overview' },
-            { id: 'registers', icon: MemoryStick, label: 'Registers & Memory' },
-            { id: 'operations', icon: Code2, label: 'Operations & Mnemonics' },
-            { id: 'throughput', icon: Zap, label: 'Throughput (TOPS)' },
             { id: 'mnist', icon: Baseline, label: 'MNIST Benchmarks' },
+            { id: 'registers', icon: MemoryStick, label: 'Registers & Memory' },
+            { id: 'throughput', icon: Zap, label: 'Throughput (TOPS)' },
+            { id: 'overview', icon: MonitorPlay, label: 'Nuances & Overview' },
+            { id: 'operations', icon: Code2, label: 'ARM Index' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -272,12 +272,6 @@ function OverviewTab() {
       <section>
         <h2 className="text-2xl font-bold text-slate-100 mb-4">{chip} Hardware Nuances</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card title="Undocumented Byte Tiles" icon={<Layers className="text-purple-400" />}>
-            <p>
-              By default, ARM specifications suggest only <code>ZA0.B</code> exists for 8-bit operations. However, hardware probing confirms the Apple {chip} silicon supports <strong className="text-purple-300">ZA1.B, ZA2.B, and ZA3.B</strong>. These can be accessed normally using encodings such as <code className="bg-slate-800 px-1 rounded">0xc0000000</code> to <code className="bg-slate-800 px-1 rounded">0xc0000003</code>.
-            </p>
-          </Card>
-          
           <Card title="SME2 vs SME1 Parsing" icon={<Code2 className="text-emerald-400" />}>
             <p>
               The {chip} uses the newer SME2 instruction format structure. Standard 8-bit multiple-vector outer products (which LLMs often expect as <code>smopa</code>) use the <strong className="text-emerald-300">sdot</strong> instruction with multiple vectors instead. For instance, <code className="text-emerald-200 bg-slate-800 px-1 rounded">sdot za.s[w0, 0, vgx4], {'{z0.b-z3.b}'}, z4.b</code> essentially performs a 4-way SMOPA.
@@ -358,10 +352,7 @@ function RegistersTab() {
             <ul className="space-y-3 mt-4 text-sm bg-slate-950 p-4 rounded-lg border border-slate-800">
               <li className="flex justify-between items-center border-b border-slate-800 pb-2">
                 <span className="font-semibold text-slate-300 font-mono">ZA0.B - ZA3.B</span>
-                <span className="text-right flex flex-col">
-                  <span>4 Byte tiles (8-bit elements)</span>
-                  <span className="text-[10px] text-purple-400 uppercase tracking-widest mt-1 font-bold">{chip} Undocumented Exclusives</span>
-                </span>
+                <span>4 Byte tiles (8-bit elements)</span>
               </li>
               <li className="flex justify-between items-center border-b border-slate-800 pb-2">
                 <span className="font-semibold text-slate-300 font-mono">ZA0.H - ZA1.H</span>
@@ -504,6 +495,7 @@ function ThroughputTab() {
                 <tr>
                   <th className="px-6 py-4 font-semibold">Test Configuration</th>
                   <th className="px-6 py-4 font-semibold text-right">BNNS INT8</th>
+                  <th className="px-6 py-4 font-semibold text-right">CBLAS FP32</th>
                   <th className="px-6 py-4 font-semibold text-right">GPU FP16</th>
                   <th className="px-6 py-4 font-semibold text-right">NEON FP32</th>
                   <th className="px-6 py-4 font-semibold text-right">SME</th>
@@ -515,6 +507,7 @@ function ThroughputTab() {
                   <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
                     <td className="px-6 py-4 font-medium text-slate-200">{row.test}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.bnns > 0 ? row.bnns.toFixed(3) : '--'}</td>
+                    <td className="px-6 py-4 text-right font-mono text-slate-400">{row.cblas > 0 ? row.cblas.toFixed(3) : '--'}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.gpu > 0 ? row.gpu.toFixed(3) : '--'}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.neon > 0 ? row.neon.toFixed(3) : '--'}</td>
                     <td className="px-6 py-4 text-right font-mono text-slate-400">{row.sme > 0 ? row.sme.toFixed(3) : '--'}</td>

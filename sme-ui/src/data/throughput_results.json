@@ -1,117 +1,212 @@
 {
-  "timestamp": "2026-03-23T15:56:40.440Z",
+  "timestamp": "2026-03-23T19:41:14.646Z",
   "results": [
     {
       "test": "GPU alone",
       "bnns": 0,
-      "gpu": 41.217,
+      "cblas": 0,
+      "gpu": 41.058,
       "neon": 0,
       "sme": 0,
-      "total": 41.217
+      "total": 41.058
     },
     {
       "test": "SME alone (6t)",
       "bnns": 0,
+      "cblas": 0,
       "gpu": 0,
       "neon": 0,
-      "sme": 6.531,
-      "total": 6.531
+      "sme": 6.554,
+      "total": 6.554
     },
     {
       "test": "BNNS INT8 alone (6t)",
-      "bnns": 3.247,
+      "bnns": 3.259,
+      "cblas": 0,
       "gpu": 0,
       "neon": 0,
       "sme": 0,
-      "total": 3.247
+      "total": 3.259
+    },
+    {
+      "test": "CBLAS SGEMM alone (6t)",
+      "bnns": 0,
+      "cblas": 2.843,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 0,
+      "total": 2.843
     },
     {
       "test": "NEON alone (17t)",
       "bnns": 0,
+      "cblas": 0,
       "gpu": 0,
-      "neon": 1.847,
+      "neon": 1.821,
       "sme": 0,
-      "total": 1.847
+      "total": 1.821
     },
     {
       "test": "GPU + SME",
       "bnns": 0,
-      "gpu": 41.254,
+      "cblas": 0,
+      "gpu": 41.09,
       "neon": 0,
-      "sme": 6.523,
-      "total": 47.777
+      "sme": 6.532,
+      "total": 47.623
+    },
+    {
+      "test": "GPU + CBLAS",
+      "bnns": 0,
+      "cblas": 2.56,
+      "gpu": 40.765,
+      "neon": 0,
+      "sme": 0,
+      "total": 43.325
     },
     {
       "test": "GPU + BNNS",
-      "bnns": 3.237,
-      "gpu": 41.238,
+      "bnns": 3.144,
+      "cblas": 0,
+      "gpu": 41.064,
       "neon": 0,
       "sme": 0,
-      "total": 44.475
+      "total": 44.207
     },
     {
       "test": "GPU + NEON",
       "bnns": 0,
-      "gpu": 41.216,
-      "neon": 1.606,
+      "cblas": 0,
+      "gpu": 41.058,
+      "neon": 1.652,
       "sme": 0,
-      "total": 42.822
+      "total": 42.71
+    },
+    {
+      "test": "SME + CBLAS",
+      "bnns": 0,
+      "cblas": 0.701,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 4.356,
+      "total": 5.058
     },
     {
       "test": "SME + BNNS",
-      "bnns": 1.144,
+      "bnns": 1.14,
+      "cblas": 0,
       "gpu": 0,
       "neon": 0,
-      "sme": 3.905,
-      "total": 5.049
+      "sme": 3.761,
+      "total": 4.901
     },
     {
       "test": "SME + NEON",
       "bnns": 0,
+      "cblas": 0,
       "gpu": 0,
-      "neon": 1.431,
-      "sme": 5.308,
-      "total": 6.739
+      "neon": 1.48,
+      "sme": 5.541,
+      "total": 7.021
+    },
+    {
+      "test": "CBLAS + BNNS",
+      "bnns": 1.756,
+      "cblas": 0.937,
+      "gpu": 0,
+      "neon": 0,
+      "sme": 0,
+      "total": 2.693
+    },
+    {
+      "test": "CBLAS + NEON",
+      "bnns": 0,
+      "cblas": 2.306,
+      "gpu": 0,
+      "neon": 1.476,
+      "sme": 0,
+      "total": 3.782
     },
     {
       "test": "BNNS + NEON",
       "bnns": 0,
+      "cblas": 0,
       "gpu": 0,
-      "neon": 1.793,
+      "neon": 1.85,
       "sme": 0,
-      "total": 1.793
+      "total": 1.85
+    },
+    {
+      "test": "GPU + SME + CBLAS",
+      "bnns": 0,
+      "cblas": 0.715,
+      "gpu": 41.062,
+      "neon": 0,
+      "sme": 4.488,
+      "total": 46.265
     },
     {
       "test": "GPU + SME + NEON",
       "bnns": 0,
-      "gpu": 30.493,
-      "neon": 1.284,
-      "sme": 4.464,
-      "total": 36.241
+      "cblas": 0,
+      "gpu": 39.277,
+      "neon": 1.418,
+      "sme": 5.161,
+      "total": 45.856
+    },
+    {
+      "test": "GPU + CBLAS + NEON",
+      "bnns": 0,
+      "cblas": 1.828,
+      "gpu": 38.225,
+      "neon": 1.199,
+      "sme": 0,
+      "total": 41.253
     },
     {
       "test": "GPU + BNNS + NEON",
       "bnns": 0,
-      "gpu": 35.949,
-      "neon": 1.622,
+      "cblas": 0,
+      "gpu": 39.251,
+      "neon": 1.607,
       "sme": 0,
-      "total": 37.572
+      "total": 40.858
     },
     {
       "test": "GPU + SME + BNNS",
-      "bnns": 1.149,
-      "gpu": 38.894,
+      "bnns": 1.179,
+      "cblas": 0,
+      "gpu": 40.93,
       "neon": 0,
-      "sme": 3.839,
-      "total": 43.882
+      "sme": 3.824,
+      "total": 45.933
+    },
+    {
+      "test": "GPU + SME + CBLAS + NEON",
+      "bnns": 0,
+      "cblas": 0.822,
+      "gpu": 37.711,
+      "neon": 1.097,
+      "sme": 3.763,
+      "total": 43.393
     },
     {
       "test": "GPU + SME + BNNS + NEON",
-      "bnns": 1.017,
-      "gpu": 36.966,
-      "neon": 1,
-      "sme": 2.855,
-      "total": 41.837
+      "bnns": 0,
+      "cblas": 0,
+      "gpu": 37.946,
+      "neon": 1.347,
+      "sme": 4.884,
+      "total": 44.177
+    },
+    {
+      "test": "GPU + SME + CBLAS + BNNS + NEON",
+      "bnns": 0,
+      "cblas": 0.816,
+      "gpu": 37.31,
+      "neon": 1.068,
+      "sme": 3.591,
+      "total": 42.785
     }
   ]
 }
