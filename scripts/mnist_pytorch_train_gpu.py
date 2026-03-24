@@ -84,7 +84,7 @@ def train(use_compile: bool = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=lr)
 
-    mode_name = "PyTorch CPU (compile)" if use_compile else "PyTorch CPU (eager)"
+    mode_name = "PyTorch MPS (compile)" if use_compile else "PyTorch MPS (eager)"
 
     print(f"Starting {mode_name} MNIST Training")
     print(f"Device: {device}")

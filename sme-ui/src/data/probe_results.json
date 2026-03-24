@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-23T19:37:17.648Z",
+  "timestamp": "2026-03-24T00:16:14.848Z",
   "sysInfo": {
     "brand_string": "Apple M5 Max",
     "chip": "M5",
@@ -7036,43 +7036,43 @@
           "label": "FADD z.s (FP32 vector add)",
           "value": 1.05,
           "unit": "Gops/s",
-          "timeInfo": " 0.950 s"
+          "timeInfo": " 0.952 s"
         },
         {
           "label": "FMUL z.s (FP32 vector mul)",
-          "value": 1.06,
+          "value": 1.05,
           "unit": "Gops/s",
-          "timeInfo": " 0.945 s"
+          "timeInfo": " 0.953 s"
         },
         {
           "label": "FMLA z.s (FP32 fused mul-add)",
           "value": 0.53,
           "unit": "Gops/s",
-          "timeInfo": " 1.884 s"
+          "timeInfo": " 1.889 s"
         },
         {
           "label": "ADD z.b (INT8 vector add)",
-          "value": 3.9,
+          "value": 4.11,
           "unit": "Gops/s",
-          "timeInfo": " 0.256 s"
+          "timeInfo": " 0.243 s"
         },
         {
           "label": "MUL z.s (INT32 vector mul)",
           "value": 1.05,
           "unit": "Gops/s",
-          "timeInfo": " 0.949 s"
+          "timeInfo": " 0.950 s"
         },
         {
           "label": "SDOT z.s (INT8 dot product)",
           "value": 0.53,
           "unit": "Gops/s",
-          "timeInfo": " 1.892 s"
+          "timeInfo": " 1.888 s"
         },
         {
           "label": "FDOT z.s (FP16 2-way dot)",
           "value": 0.27,
           "unit": "Gops/s",
-          "timeInfo": " 3.767 s"
+          "timeInfo": " 3.771 s"
         }
       ]
     },
@@ -7081,9 +7081,9 @@
       "items": [
         {
           "label": "FMOPA za0.s (FP32 outer product)",
-          "value": 1.06,
+          "value": 1.05,
           "unit": "Gops/s",
-          "timeInfo": " 0.946 s"
+          "timeInfo": " 0.949 s"
         },
         {
           "label": "SMOPA za0.s (INT8 outer product)",
@@ -7095,19 +7095,19 @@
           "label": "SMLALL 1v (INT8 long-long)",
           "value": 1.06,
           "unit": "Gops/s",
-          "timeInfo": " 0.944 s"
+          "timeInfo": " 0.941 s"
         },
         {
           "label": "SMLALL VGx2 (INT8 long-long 2v)",
-          "value": 1.06,
+          "value": 1.04,
           "unit": "Gops/s",
-          "timeInfo": " 0.946 s"
+          "timeInfo": " 0.960 s"
         },
         {
           "label": "SMLALL VGx4 (INT8 long-long 4v)",
-          "value": 1.06,
+          "value": 1.05,
           "unit": "Gops/s",
-          "timeInfo": " 0.945 s"
+          "timeInfo": " 0.949 s"
         },
         {
           "label": "BFMOPA za0.s (BF16 outer product)",
@@ -7117,9 +7117,9 @@
         },
         {
           "label": "FMOPA za0.d (FP64 outer product)",
-          "value": 1.05,
+          "value": 1.06,
           "unit": "Gops/s",
-          "timeInfo": " 0.950 s"
+          "timeInfo": " 0.947 s"
         }
       ]
     },
@@ -7128,51 +7128,51 @@
       "items": [
         {
           "label": "FMOPA  1 threads:",
-          "value": 2.169,
+          "value": 2.182,
           "unit": "TFLOPS",
-          "timeInfo": " 0.236 s, 1000000000 ops/thread"
+          "timeInfo": " 0.235 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  2 threads:",
-          "value": 2.394,
+          "value": 2.44,
           "unit": "TFLOPS",
-          "timeInfo": " 0.428 s, 1000000000 ops/thread"
+          "timeInfo": " 0.420 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  4 threads:",
-          "value": 3.034,
+          "value": 3.061,
           "unit": "TFLOPS",
-          "timeInfo": " 0.675 s, 1000000000 ops/thread"
+          "timeInfo": " 0.669 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  6 threads:",
-          "value": 3.225,
+          "value": 3.187,
           "unit": "TFLOPS",
-          "timeInfo": " 0.952 s, 1000000000 ops/thread"
+          "timeInfo": " 0.964 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  8 threads:",
-          "value": 3.193,
+          "value": 3.202,
           "unit": "TFLOPS",
-          "timeInfo": " 1.283 s, 1000000000 ops/thread"
+          "timeInfo": " 1.279 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 12 threads:",
-          "value": 3.24,
+          "value": 3.195,
           "unit": "TFLOPS",
-          "timeInfo": " 1.896 s, 1000000000 ops/thread"
+          "timeInfo": " 1.923 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 16 threads:",
-          "value": 3.166,
+          "value": 3.17,
           "unit": "TFLOPS",
-          "timeInfo": " 2.587 s, 1000000000 ops/thread"
+          "timeInfo": " 2.584 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 18 threads:",
-          "value": 3.214,
+          "value": 3.19,
           "unit": "TFLOPS",
-          "timeInfo": " 2.868 s, 1000000000 ops/thread"
+          "timeInfo": " 2.889 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7181,51 +7181,51 @@
       "items": [
         {
           "label": "SMLALL  1 threads:",
-          "value": 1.086,
-          "unit": "TOPS",
-          "timeInfo": " 0.943 s, 1000000000 ops/thread"
-        },
-        {
-          "label": "SMLALL  2 threads:",
-          "value": 2.184,
+          "value": 1.092,
           "unit": "TOPS",
           "timeInfo": " 0.938 s, 1000000000 ops/thread"
         },
         {
-          "label": "SMLALL  4 threads:",
-          "value": 4.304,
+          "label": "SMLALL  2 threads:",
+          "value": 2.191,
           "unit": "TOPS",
-          "timeInfo": " 0.952 s, 1000000000 ops/thread"
+          "timeInfo": " 0.935 s, 1000000000 ops/thread"
+        },
+        {
+          "label": "SMLALL  4 threads:",
+          "value": 4.23,
+          "unit": "TOPS",
+          "timeInfo": " 0.968 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  6 threads:",
-          "value": 6.388,
+          "value": 6.26,
           "unit": "TOPS",
-          "timeInfo": " 0.962 s, 1000000000 ops/thread"
+          "timeInfo": " 0.982 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  8 threads:",
-          "value": 6.03,
+          "value": 6.464,
           "unit": "TOPS",
-          "timeInfo": " 1.358 s, 1000000000 ops/thread"
+          "timeInfo": " 1.267 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 12 threads:",
-          "value": 5.476,
+          "value": 5.19,
           "unit": "TOPS",
-          "timeInfo": " 2.244 s, 1000000000 ops/thread"
+          "timeInfo": " 2.368 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 16 threads:",
-          "value": 6.134,
+          "value": 6.293,
           "unit": "TOPS",
-          "timeInfo": " 2.671 s, 1000000000 ops/thread"
+          "timeInfo": " 2.604 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 18 threads:",
-          "value": 6.521,
+          "value": 6.476,
           "unit": "TOPS",
-          "timeInfo": " 2.827 s, 1000000000 ops/thread"
+          "timeInfo": " 2.846 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7234,51 +7234,51 @@
       "items": [
         {
           "label": "SMOPA i8  1 threads:",
-          "value": 4.355,
+          "value": 4.363,
           "unit": "TOPS",
-          "timeInfo": " 0.470 s, 1000000000 ops/thread"
+          "timeInfo": " 0.469 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  2 threads:",
-          "value": 4.994,
+          "value": 5.339,
           "unit": "TOPS",
-          "timeInfo": " 0.820 s, 1000000000 ops/thread"
+          "timeInfo": " 0.767 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  4 threads:",
-          "value": 6.295,
+          "value": 6.268,
           "unit": "TOPS",
-          "timeInfo": " 1.301 s, 1000000000 ops/thread"
+          "timeInfo": " 1.307 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  6 threads:",
-          "value": 5.991,
+          "value": 6.423,
           "unit": "TOPS",
-          "timeInfo": " 2.051 s, 1000000000 ops/thread"
+          "timeInfo": " 1.913 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  8 threads:",
-          "value": 6.518,
+          "value": 6.476,
           "unit": "TOPS",
-          "timeInfo": " 2.513 s, 1000000000 ops/thread"
+          "timeInfo": " 2.530 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 12 threads:",
-          "value": 6.072,
+          "value": 6.478,
           "unit": "TOPS",
-          "timeInfo": " 4.048 s, 1000000000 ops/thread"
+          "timeInfo": " 3.794 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 16 threads:",
-          "value": 6.372,
+          "value": 6.387,
           "unit": "TOPS",
-          "timeInfo": " 5.142 s, 1000000000 ops/thread"
+          "timeInfo": " 5.130 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 18 threads:",
-          "value": 6.457,
+          "value": 6.436,
           "unit": "TOPS",
-          "timeInfo": " 5.709 s, 1000000000 ops/thread"
+          "timeInfo": " 5.727 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7287,105 +7287,105 @@
       "items": [
         {
           "label": "LUTI2 1v 8b               1 threads:",
-          "value": 6.36,
+          "value": 6.38,
           "unit": "Gops/s",
           "timeInfo": " 0.157 s"
         },
         {
           "label": "LUTI2 1v 8b               2 threads:",
-          "value": 11.54,
+          "value": 11.49,
           "unit": "Gops/s",
-          "timeInfo": " 0.173 s"
+          "timeInfo": " 0.174 s"
         },
         {
           "label": "LUTI2 1v 8b               4 threads:",
-          "value": 17.69,
+          "value": 17.53,
           "unit": "Gops/s",
-          "timeInfo": " 0.226 s"
+          "timeInfo": " 0.228 s"
         },
         {
           "label": "LUTI2 1v 8b               6 threads:",
-          "value": 19.69,
+          "value": 21.33,
           "unit": "Gops/s",
-          "timeInfo": " 0.305 s"
+          "timeInfo": " 0.281 s"
         },
         {
           "label": "LUTI2 1v 8b               8 threads:",
-          "value": 17.8,
+          "value": 20.81,
           "unit": "Gops/s",
-          "timeInfo": " 0.449 s"
+          "timeInfo": " 0.384 s"
         },
         {
           "label": "LUTI2 1v 8b              12 threads:",
-          "value": 19.62,
+          "value": 17.96,
           "unit": "Gops/s",
-          "timeInfo": " 0.612 s"
+          "timeInfo": " 0.668 s"
         },
         {
           "label": "LUTI2 1v 8b              16 threads:",
-          "value": 21.36,
+          "value": 21.53,
           "unit": "Gops/s",
-          "timeInfo": " 0.749 s"
+          "timeInfo": " 0.743 s"
         },
         {
           "label": "LUTI2 1v 8b              18 threads:",
-          "value": 21.97,
+          "value": 21.92,
           "unit": "Gops/s",
-          "timeInfo": " 0.819 s"
+          "timeInfo": " 0.821 s"
         },
         {
           "label": "LUTI4 1v 8b               1 threads:",
-          "value": 6.37,
+          "value": 6.39,
           "unit": "Gops/s",
           "timeInfo": " 0.157 s"
         },
         {
           "label": "LUTI4 1v 8b               2 threads:",
-          "value": 11.82,
+          "value": 11.7,
           "unit": "Gops/s",
-          "timeInfo": " 0.169 s"
+          "timeInfo": " 0.171 s"
         },
         {
           "label": "LUTI4 1v 8b               4 threads:",
-          "value": 17.89,
+          "value": 17.48,
           "unit": "Gops/s",
-          "timeInfo": " 0.224 s"
+          "timeInfo": " 0.229 s"
         },
         {
           "label": "LUTI4 1v 8b               6 threads:",
-          "value": 20.62,
+          "value": 20.07,
           "unit": "Gops/s",
-          "timeInfo": " 0.291 s"
+          "timeInfo": " 0.299 s"
         },
         {
           "label": "LUTI4 1v 8b               8 threads:",
-          "value": 21.12,
+          "value": 20.17,
           "unit": "Gops/s",
-          "timeInfo": " 0.379 s"
+          "timeInfo": " 0.397 s"
         },
         {
           "label": "LUTI4 1v 8b              12 threads:",
-          "value": 18.62,
+          "value": 19.34,
           "unit": "Gops/s",
-          "timeInfo": " 0.644 s"
+          "timeInfo": " 0.621 s"
         },
         {
           "label": "LUTI4 1v 8b              16 threads:",
-          "value": 21.32,
+          "value": 21.55,
           "unit": "Gops/s",
-          "timeInfo": " 0.751 s"
+          "timeInfo": " 0.742 s"
         },
         {
           "label": "LUTI4 1v 8b              18 threads:",
-          "value": 22,
+          "value": 21.94,
           "unit": "Gops/s",
-          "timeInfo": " 0.818 s"
+          "timeInfo": " 0.820 s"
         },
         {
           "label": "LUTI4 2v 16b              1 threads:",
-          "value": 6.36,
+          "value": 6.39,
           "unit": "Gops/s",
-          "timeInfo": " 0.157 s"
+          "timeInfo": " 0.156 s"
         },
         {
           "label": "LUTI4 2v 16b              2 threads:",
@@ -7395,39 +7395,39 @@
         },
         {
           "label": "LUTI4 2v 16b              4 threads:",
-          "value": 12.93,
+          "value": 12.74,
           "unit": "Gops/s",
-          "timeInfo": " 0.309 s"
+          "timeInfo": " 0.314 s"
         },
         {
           "label": "LUTI4 2v 16b              6 threads:",
-          "value": 11.6,
+          "value": 12.82,
           "unit": "Gops/s",
-          "timeInfo": " 0.517 s"
+          "timeInfo": " 0.468 s"
         },
         {
           "label": "LUTI4 2v 16b              8 threads:",
-          "value": 13.27,
+          "value": 13.26,
           "unit": "Gops/s",
           "timeInfo": " 0.603 s"
         },
         {
           "label": "LUTI4 2v 16b             12 threads:",
-          "value": 13.01,
+          "value": 13,
           "unit": "Gops/s",
-          "timeInfo": " 0.922 s"
+          "timeInfo": " 0.923 s"
         },
         {
           "label": "LUTI4 2v 16b             16 threads:",
-          "value": 15.45,
+          "value": 15.56,
           "unit": "Gops/s",
-          "timeInfo": " 1.036 s"
+          "timeInfo": " 1.028 s"
         },
         {
           "label": "LUTI4 2v 16b             18 threads:",
-          "value": 17.26,
+          "value": 17.09,
           "unit": "Gops/s",
-          "timeInfo": " 1.043 s"
+          "timeInfo": " 1.053 s"
         }
       ]
     }
