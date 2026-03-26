@@ -111,6 +111,16 @@ _stream_exec:
     .long   .L_op_fmopa_zreg - .L_jump_table     // 0x4C fmopa_zreg
     .long   .L_op_cblas_sgemm - .L_jump_table    // 0x4D cblas_sgemm
     .long   .L_op_fclamp_zreg - .L_jump_table   // 0x4E fclamp_zreg
+    .long   .L_op_faddv_zreg - .L_jump_table    // 0x4F faddv_zreg
+    .long   .L_op_frsqrt_zreg - .L_jump_table   // 0x50 frsqrt_zreg
+    .long   .L_op_rms_norm_fp32 - .L_jump_table // 0x51 rms_norm_fp32
+    .long   .L_op_broadcast_scalar_zreg - .L_jump_table // 0x52 broadcast_scalar_zreg
+    .long   .L_op_fscale_zreg - .L_jump_table  // 0x53 fscale_zreg
+    .long   .L_op_silu_fp32 - .L_jump_table    // 0x54 silu_fp32
+    .long   .L_op_rope_fp32 - .L_jump_table   // 0x55 rope_fp32
+    .long   .L_op_softmax_fp32 - .L_jump_table // 0x56 softmax_fp32
+    .long   .L_op_q8_0_gemv - .L_jump_table   // 0x57 q8_0_gemv
+    .long   .L_op_q4_0_gemv - .L_jump_table   // 0x58 q4_0_gemv
 // ================================================================
 // EXIT — reached end of bytecodes
 // ================================================================
@@ -5972,3 +5982,670 @@ _stream_exec:
 .L_fclamp_done:
     addvl   sp, sp, #1
     b       .L_dispatch
+// ================================================================
+// FADDV_ZREG (0x4F) — z{dst}.s = broadcast(faddv(z{src}.s))
+// Encoding: [0x4F][dst:u8][src:u8]
+// Horizontal FP32 sum across all lanes, broadcast result to all lanes
+// ================================================================
+.L_op_faddv_zreg:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src index
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_faddv_1
+    b       .L_tramp_store         // store z{src} to [sp]
+.L_faddv_1:
+    ldr     z0, [sp]               // z0 = src
+    faddv   s0, p0, z0.s           // horizontal sum -> s0
+    mov     z0.s, s0               // broadcast scalar to all lanes
+    str     z0, [sp]
+    mov     w9, w22                // dst index
+    adr     x26, .L_faddv_2
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_faddv_2:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FRSQRT_ZREG (0x50) — z{dst}.s = 1/sqrt(z{src}.s) per element
+// Encoding: [0x50][dst:u8][src:u8]
+// Two Newton-Raphson refinement steps for accuracy
+// ================================================================
+.L_op_frsqrt_zreg:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src index
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_frsqrt_1
+    b       .L_tramp_store         // store z{src} to [sp]
+.L_frsqrt_1:
+    ldr     z0, [sp]               // z0 = src (x)
+    frsqrte z1.s, z0.s             // z1 = initial estimate of 1/sqrt(x)
+    fmul    z2.s, z1.s, z1.s       // z2 = est^2
+    frsqrts z2.s, z0.s, z2.s       // z2 = (3 - x * est^2) / 2
+    fmul    z1.s, p0/m, z1.s, z2.s // z1 = refined estimate
+    fmul    z2.s, z1.s, z1.s       // z2 = est^2 (second pass)
+    frsqrts z2.s, z0.s, z2.s       // z2 = refinement factor
+    fmul    z1.s, p0/m, z1.s, z2.s // z1 = final result
+    mov     z0.d, z1.d             // z0 = final result
+    str     z0, [sp]
+    mov     w9, w22                // dst index
+    adr     x26, .L_frsqrt_2
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_frsqrt_2:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// RMS_NORM_FP32 (0x51) — Fused RMS normalization (memory-to-memory)
+// out[i] = in[i] * rsqrt(mean(in[i]^2) + eps) * weight[i]
+// Encoding: [0x51][dim:u32][eps:f32][input_ptr:u64][weight_ptr:u64][output_ptr:u64]
+// ================================================================
+.L_op_rms_norm_fp32:
+    ldr     w22, [x19]             // dim (u32)
+    ldr     s16, [x19, #4]         // eps (f32)
+    ldr     x8, [x19, #8]         // input_ptr
+    ldr     x10, [x19, #16]        // weight_ptr
+    ldr     x11, [x19, #24]        // output_ptr
+    add     x19, x19, #32          // advance IP past all operands
+    ptrue   p0.s
+    cntw    x9                     // SVLs = 16 on M4
+    // Save input_ptr to stack for pass 2
+    str     x8, [sp, #128]
+    // ── Pass 1: compute sum of squares ──
+    mov     z4.d, #0               // accumulator
+    mov     x12, x8                // x12 = current input ptr
+    mov     w13, w22               // w13 = remaining elements
+.L_rms_pass1:
+    cbz     w13, .L_rms_pass1_done
+    ld1w    {z0.s}, p0/z, [x12]
+    fmla    z4.s, p0/m, z0.s, z0.s // accumulate x^2
+    add     x12, x12, x9, lsl #2  // advance by SVLs * 4 bytes
+    sub     w13, w13, w9           // decrement remaining
+    b       .L_rms_pass1
+.L_rms_pass1_done:
+    // Horizontal sum of squared values
+    faddv   s4, p0, z4.s           // s4 = sum of all x^2
+    // Compute mean = sum / dim
+    ucvtf   s5, w22                // s5 = (float)dim
+    fdiv    s4, s4, s5             // s4 = mean(x^2)
+    fadd    s4, s4, s16            // s4 = mean(x^2) + eps
+    // Compute rsqrt(mean + eps) with two Newton-Raphson steps
+    frsqrte s7, s4                 // initial estimate
+    fmul    s8, s7, s7             // est^2
+    frsqrts s8, s4, s8             // refinement factor
+    fmul    s7, s7, s8             // refined estimate
+    fmul    s8, s7, s7             // est^2 (second pass)
+    frsqrts s8, s4, s8             // refinement factor
+    fmul    s7, s7, s8             // final rsqrt
+    // Broadcast rsqrt scalar to all lanes
+    mov     z16.s, s7
+    // ── Pass 2: normalize and scale ──
+    ldr     x12, [sp, #128]        // reload input_ptr
+    mov     x14, x10               // x14 = weight_ptr
+    mov     x15, x11               // x15 = output_ptr
+    mov     w13, w22               // w13 = remaining elements
+.L_rms_pass2:
+    cbz     w13, .L_rms_done
+    ld1w    {z0.s}, p0/z, [x12]   // load input
+    ld1w    {z1.s}, p0/z, [x14]   // load weight
+    fmul    z0.s, p0/m, z0.s, z16.s // x * rsqrt(mean_sq + eps)
+    fmul    z0.s, p0/m, z0.s, z1.s  // * weight
+    st1w    {z0.s}, p0, [x15]
+    add     x12, x12, x9, lsl #2  // advance input
+    add     x14, x14, x9, lsl #2  // advance weight
+    add     x15, x15, x9, lsl #2  // advance output
+    sub     w13, w13, w9           // decrement remaining
+    b       .L_rms_pass2
+.L_rms_done:
+    b       .L_dispatch
+// ================================================================
+// BROADCAST_SCALAR_ZREG (0x52) — z{dst}.s = broadcast(value)
+// Encoding: [0x52][dst:u8][value:f32]
+// Fills all 16 FP32 lanes of z{dst} with the immediate float value.
+// ================================================================
+.L_op_broadcast_scalar_zreg:
+    ldrb    w22, [x19], #1         // dst index
+    ldr     s16, [x19]             // value (f32 immediate)
+    add     x19, x19, #4           // advance IP past f32
+    ptrue   p0.s
+    mov     z0.s, s16              // broadcast scalar to all 16 lanes
+    addvl   sp, sp, #-1
+    str     z0, [sp]
+    mov     w9, w22                // dst index for trampoline
+    adr     x26, .L_bcast_done
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_bcast_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FSCALE_ZREG (0x53) — z{dst}.s = z{src}.s * scalar
+// Encoding: [0x53][dst:u8][src:u8][scalar:f32]
+// Element-wise multiply of z{src} by a broadcast scalar, result in z{dst}.
+// ================================================================
+.L_op_fscale_zreg:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src index
+    ldr     s16, [x19]             // scalar (f32 immediate)
+    add     x19, x19, #4           // advance IP past f32
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    // Store z{src} to stack via trampoline
+    adr     x26, .L_fscale_1
+    b       .L_tramp_store         // store z{src} to [sp]
+.L_fscale_1:
+    ldr     z0, [sp]               // z0 = src data
+    mov     z1.s, s16              // z1 = broadcast scalar
+    fmul    z0.s, z0.s, z1.s       // z0 = src * scalar
+    str     z0, [sp]
+    mov     w9, w22                // dst index for trampoline
+    adr     x26, .L_fscale_done
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_fscale_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// SILU_FP32 (0x54) — SiLU activation (memory-to-memory)
+// out[i] = in[i] * sigmoid(in[i]) where sigmoid(x) = 1/(1+exp(-x))
+// Encoding: [0x54][count:u32][input_ptr:u64][output_ptr:u64]
+// Uses the same exp polynomial as softmax (range reduction + Horner).
+// ================================================================
+.L_op_silu_fp32:
+    ldr     w22, [x19]             // count (u32)
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // output_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9                     // SVLs = 16 on M4
+    // Load exp constants (same polynomial as softmax)
+    // log2(e) = 1.4426950216
+    movz    w4, #0x3FB8, lsl #16
+    movk    w4, #0xAA3B
+    fmov    s28, w4
+    mov     z28.s, s28              // log2(e)
+    // c4 = 0.009607379
+    movz    w4, #0x3C1D, lsl #16
+    movk    w4, #0x955A
+    fmov    s29, w4
+    mov     z29.s, s29              // c4
+    // c3 = 0.05550348
+    movz    w4, #0x3D63, lsl #16
+    movk    w4, #0x5847
+    fmov    s30, w4
+    mov     z30.s, s30              // c3
+    // c2 = 0.24022651
+    movz    w4, #0x3E75, lsl #16
+    movk    w4, #0xFDF0
+    fmov    s31, w4
+    mov     z31.s, s31              // c2
+    // c1 = ln(2) = 0.6931471825
+    movz    w4, #0x3F31, lsl #16
+    movk    w4, #0x7218
+    fmov    s27, w4
+    mov     z27.s, s27              // c1 = ln(2)
+    fmov    z26.s, #1.0             // c0 = 1.0
+.L_silu_loop:
+    cbz     w22, .L_silu_done
+    ld1w    {z0.s}, p0/z, [x8]    // z0 = x (input)
+    // Save original x for final multiply
+    mov     z7.d, z0.d              // z7 = x (preserved)
+    // Negate: compute exp(-x) for sigmoid
+    fneg    z0.s, p0/m, z0.s       // z0 = -x
+    // Range reduction: t = -x * log2(e)
+    fmul    z1.s, z0.s, z28.s      // z1 = -x * log2(e)
+    frintm  z2.s, p0/m, z1.s       // z2 = floor(t) = n
+    fsub    z3.s, z1.s, z2.s        // z3 = f = t - n (fractional, [0,1))
+    // Horner polynomial: 2^f = c4*f + c3, *f + c2, *f + c1, *f + c0
+    fmul    z4.s, z29.s, z3.s       // c4 * f
+    fadd    z4.s, z4.s, z30.s       // + c3
+    fmul    z4.s, z4.s, z3.s        // * f
+    fadd    z4.s, z4.s, z31.s       // + c2
+    fmul    z4.s, z4.s, z3.s        // * f
+    fadd    z4.s, z4.s, z27.s       // + c1
+    fmul    z4.s, z4.s, z3.s        // * f
+    fadd    z4.s, z4.s, z26.s       // + c0 (1.0)
+    // Reconstruct 2^n via integer exponent bit manipulation
+    fcvtzs  z5.s, p0/m, z2.s       // n as integer
+    mov     z6.s, #-127
+    smax    z5.s, p0/m, z5.s, z6.s // clamp exponent to >= -127
+    add     z5.s, z5.s, #127       // bias exponent
+    lsl     z5.s, z5.s, #23        // shift into IEEE754 exponent field
+    // exp(-x) = poly * 2^n
+    fmul    z4.s, z4.s, z5.s        // z4 = exp(-x)
+    // sigmoid(x) = 1 / (1 + exp(-x))
+    fadd    z4.s, z4.s, z26.s       // z4 = 1 + exp(-x)
+    // Compute reciprocal via frecpe + Newton-Raphson
+    frecpe  z5.s, z4.s              // z5 = ~1/z4
+    frecps  z6.s, z4.s, z5.s        // refinement step
+    fmul    z5.s, p0/m, z5.s, z6.s  // z5 = refined 1/(1+exp(-x))
+    frecps  z6.s, z4.s, z5.s        // second refinement
+    fmul    z5.s, p0/m, z5.s, z6.s  // z5 = sigmoid(x)
+    // SiLU = x * sigmoid(x)
+    fmul    z0.s, z7.s, z5.s        // z0 = x * sigmoid(x)
+    st1w    {z0.s}, p0, [x11]
+    add     x8, x8, x9, lsl #2    // advance input ptr
+    add     x11, x11, x9, lsl #2   // advance output ptr
+    sub     w22, w22, w9            // decrement remaining
+    b       .L_silu_loop
+.L_silu_done:
+    b       .L_dispatch
+// ================================================================
+// ROPE_FP32 (0x55)
+// Rotary Position Embedding for LLM attention heads.
+// Applies position-dependent rotation to each pair of elements:
+//   out[2i]   = in[2i]*cos(freq) - in[2i+1]*sin(freq)
+//   out[2i+1] = in[2i]*sin(freq) + in[2i+1]*cos(freq)
+// where freq = pos / theta^(2i/dim)
+//
+// Frequency generation uses repeated multiplication:
+//   ratio = theta^(2/dim) computed via ln+exp polynomial chain
+//   power[k+1] = power[k] * ratio, freq[k] = pos / power[k]
+//
+// Sin/cos via degree-5/4 Taylor with 2pi range reduction.
+// Rotation vectorized via LD2W/ST2W deinterleave/reinterleave.
+//
+// Bytecode: [0x55][dim:u32][pos:u32][theta:f32][input_ptr:u64][output_ptr:u64]
+// ================================================================
+.L_op_rope_fp32:
+    ldr     w22, [x19]             // dim (number of floats, must be even)
+    ldr     w23, [x19, #4]         // pos (token position)
+    ldr     w24, [x19, #8]         // theta bits (f32)
+    add     x19, x19, #12
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // output_ptr
+    lsr     w26, w22, #1           // dim_pairs = dim / 2
+    cbz     w26, .L_rope_done
+    ptrue   p0.s
+    cntw    x9                     // SVLs = 16
+    // Save pointers on stack for reload after freq build
+    str     x8, [sp, #128]
+    str     x11, [sp, #136]
+    // ── Compute ratio = theta^(2/dim) via scalar ln+exp ──
+    // ln(theta) = e*ln(2) + ln(m), where theta = 2^e * m, m in [1,2)
+    fmov    s0, w24                // s0 = theta
+    fmov    w4, s0                 // w4 = theta bits
+    ubfx    w5, w4, #23, #8       // extract biased exponent
+    sub     w5, w5, #127           // e = unbiased exponent
+    scvtf   s1, w5                 // s1 = (float)e
+    movz    w6, #0x3F80, lsl #16   // 0x3F800000 = 1.0f
+    bfi     w4, w6, #23, #8       // set exponent to 127 → m in [1,2)
+    fmov    s2, w4                 // s2 = m
+    // ln(m) for m in [1,2): minimax cubic on t = m-1
+    //   ln(1+t) ≈ ((0.28947478*t - 0.49190896)*t + 0.99949556)*t
+    fmov    s3, #1.0
+    fsub    s2, s2, s3             // t = m - 1
+    movz    w6, #0x3E94, lsl #16
+    movk    w6, #0x3014
+    fmov    s4, w6                 // a3 = 0.28947478
+    movz    w6, #0xBEFB, lsl #16
+    movk    w6, #0xD464
+    fmov    s5, w6                 // a2 = -0.49190896
+    movz    w6, #0x3F7F, lsl #16
+    movk    w6, #0xF972
+    fmov    s6, w6                 // a1 = 0.99949556
+    fmul    s4, s4, s2             // a3*t
+    fadd    s4, s4, s5             // a3*t + a2
+    fmul    s4, s4, s2             // (a3*t + a2)*t
+    fadd    s4, s4, s6             // (a3*t + a2)*t + a1
+    fmul    s4, s4, s2             // ln(m)
+    movz    w6, #0x3F31, lsl #16
+    movk    w6, #0x7218
+    fmov    s5, w6                 // ln(2) = 0.693147
+    fmul    s1, s1, s5             // e * ln(2)
+    fadd    s1, s1, s4             // s1 = ln(theta)
+    // exponent_step = (2/dim) * ln(theta)
+    fmov    s6, #2.0
+    ucvtf   s7, w22                // (float)dim
+    fdiv    s6, s6, s7             // 2/dim
+    fmul    s6, s6, s1             // s6 = exponent_step
+    // exp(exponent_step) via degree-4 polynomial (same as softmax)
+    movz    w6, #0x3FB8, lsl #16
+    movk    w6, #0xAA3B
+    fmov    s10, w6                // log2(e)
+    fmul    s7, s6, s10            // x/ln(2)
+    frintm  s8, s7                 // n = floor
+    fsub    s9, s7, s8             // frac
+    movz    w6, #0x3C1D, lsl #16
+    movk    w6, #0x955A
+    fmov    s12, w6                // c4
+    movz    w6, #0x3D63, lsl #16
+    movk    w6, #0x5847
+    fmov    s13, w6                // c3
+    movz    w6, #0x3E75, lsl #16
+    movk    w6, #0xFDF0
+    fmov    s14, w6                // c2
+    fmul    s15, s12, s9
+    fadd    s15, s15, s13
+    fmul    s15, s15, s9
+    fadd    s15, s15, s14
+    fmul    s15, s15, s9
+    movz    w6, #0x3F31, lsl #16
+    movk    w6, #0x7218
+    fmov    s14, w6                // c1 = ln(2)
+    fadd    s15, s15, s14
+    fmul    s15, s15, s9
+    fmov    s14, #1.0
+    fadd    s15, s15, s14          // poly
+    fcvtzs  w6, s8
+    add     w6, w6, #127
+    lsl     w6, w6, #23
+    fmov    s14, w6                // 2^n as float bits
+    fmul    s0, s15, s14           // s0 = ratio = theta^(2/dim)
+    // ── Build frequency table on stack at sp+160 ──
+    // freq[k] = (float)pos / ratio^k
+    ucvtf   s1, w23                // s1 = (float)pos
+    fmov    s2, #1.0               // s2 = power = ratio^0
+    mov     w12, #0
+    add     x14, sp, #160
+.L_rope_freq_build:
+    cmp     w12, w26
+    b.ge    .L_rope_freq_done
+    fdiv    s3, s1, s2             // freq[k] = pos / power
+    str     s3, [x14, w12, uxtw #2]
+    fmul    s2, s2, s0             // power *= ratio
+    add     w12, w12, #1
+    b       .L_rope_freq_build
+.L_rope_freq_done:
+    // ── Vectorized sin/cos rotation ──
+    ldr     x8, [sp, #128]        // reload input_ptr
+    ldr     x11, [sp, #136]       // reload output_ptr
+    // Load trig constants into z-registers
+    movz    w4, #0x4049, lsl #16
+    movk    w4, #0x0FDB
+    fmov    s16, w4
+    mov     z20.s, s16             // 2*pi
+    movz    w4, #0x3E22, lsl #16
+    movk    w4, #0xF983
+    fmov    s16, w4
+    mov     z21.s, s16             // 1/(2*pi)
+    movz    w4, #0xBE2A, lsl #16
+    movk    w4, #0xAAAB
+    fmov    s16, w4
+    mov     z22.s, s16             // -1/6
+    movz    w4, #0x3C08, lsl #16
+    movk    w4, #0x8889
+    fmov    s16, w4
+    mov     z23.s, s16             // 1/120
+    movz    w4, #0xBF00, lsl #16
+    movk    w4, #0x0000
+    fmov    s16, w4
+    mov     z24.s, s16             // -0.5
+    movz    w4, #0x3D2A, lsl #16
+    movk    w4, #0xAAAB
+    fmov    s16, w4
+    mov     z25.s, s16             // 1/24
+    fmov    z26.s, #1.0
+    mov     w12, #0                // pair index offset
+    whilelt p1.s, w12, w26
+.L_rope_vec:
+    b.none  .L_rope_done
+    // Load freq[k..k+SVLs-1]
+    ld1w    {z0.s}, p1/z, [x14, x12, lsl #2]
+    // Range reduce to [-pi, pi]: x = x - round(x/(2pi)) * 2pi
+    fmul    z1.s, z0.s, z21.s
+    frintn  z1.s, p0/m, z1.s
+    fmls    z0.s, p0/m, z1.s, z20.s
+    // x^2
+    fmul    z1.s, z0.s, z0.s      // z1 = x^2
+    // sin(x) = x * (1 + x^2*(-1/6 + x^2/120))
+    mov     z2.d, z23.d            // 1/120
+    fmul    z2.s, p0/m, z2.s, z1.s // x^2/120
+    fadd    z2.s, z2.s, z22.s     // x^2/120 - 1/6
+    fmul    z2.s, p0/m, z2.s, z1.s // x^2*(x^2/120 - 1/6)
+    fadd    z2.s, z2.s, z26.s     // 1 + x^2*(...)
+    fmul    z2.s, p0/m, z2.s, z0.s // sin(x)
+    // cos(x) = 1 + x^2*(-1/2 + x^2/24)
+    mov     z3.d, z25.d            // 1/24
+    fmul    z3.s, p0/m, z3.s, z1.s // x^2/24
+    fadd    z3.s, z3.s, z24.s     // x^2/24 - 1/2
+    fmul    z3.s, p0/m, z3.s, z1.s // x^2*(x^2/24 - 1/2)
+    fadd    z3.s, z3.s, z26.s     // cos(x)
+    // z2 = sin, z3 = cos
+    // LD2W deinterleaves: z4 = even (x[0],x[2],...), z5 = odd (x[1],x[3],...)
+    ld2w    {z4.s, z5.s}, p1/z, [x8]
+    // Rotation: out_even = in_even*cos - in_odd*sin
+    //           out_odd  = in_even*sin + in_odd*cos
+    mov     z6.d, z4.d             // save in_even
+    fmul    z4.s, p0/m, z4.s, z3.s // in_even * cos
+    fmls    z4.s, p0/m, z5.s, z2.s // - in_odd * sin
+    fmul    z5.s, p0/m, z5.s, z3.s // in_odd * cos
+    fmla    z5.s, p0/m, z6.s, z2.s // + in_even * sin
+    // ST2W reinterleaves pairs
+    st2w    {z4.s, z5.s}, p1, [x11]
+    // Advance: each chunk = SVLs pairs = 2*SVLs floats
+    add     x8, x8, x9, lsl #3    // input += SVLs * 8
+    add     x11, x11, x9, lsl #3  // output += SVLs * 8
+    add     w12, w12, w9
+    whilelt p1.s, w12, w26
+    b       .L_rope_vec
+.L_rope_done:
+    b       .L_dispatch
+// ================================================================
+// SOFTMAX_FP32 (0x56)
+// Standalone softmax over a 1D fp32 array:
+//   output[i] = exp(input[i] - max) / sum(exp(input[j] - max))
+//
+// Three-pass numerically stable algorithm:
+//   Pass 1: find max via fmax + fmaxv horizontal reduction
+//   Pass 2: compute exp(x-max) via degree-4 minimax polynomial,
+//           store intermediate, accumulate sum
+//   Pass 3: multiply each stored exp by 1/sum
+//
+// Exp reconstruction uses integer exponent injection (no fscale):
+//   2^n = (n+127) << 23 reinterpret as float
+//
+// Bytecode: [0x56][dim:u32][input_ptr:u64][output_ptr:u64]
+// ================================================================
+.L_op_softmax_fp32:
+    ldr     w22, [x19]             // dim
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // output_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9                     // SVLs = 16
+    // ── Load exp polynomial constants ──
+    movz    w4, #0x3FB8, lsl #16
+    movk    w4, #0xAA3B
+    fmov    s28, w4
+    mov     z28.s, s28             // log2(e)
+    movz    w4, #0x3C1D, lsl #16
+    movk    w4, #0x955A
+    fmov    s29, w4
+    mov     z29.s, s29             // c4
+    movz    w4, #0x3D63, lsl #16
+    movk    w4, #0x5847
+    fmov    s30, w4
+    mov     z30.s, s30             // c3
+    movz    w4, #0x3E75, lsl #16
+    movk    w4, #0xFDF0
+    fmov    s31, w4
+    mov     z31.s, s31             // c2
+    movz    w4, #0x3F31, lsl #16
+    movk    w4, #0x7218
+    fmov    s27, w4
+    mov     z27.s, s27             // c1 = ln(2)
+    fmov    z26.s, #1.0            // c0 = 1.0
+    mov     x14, x8               // save input_ptr
+    mov     x15, x11              // save output_ptr
+    // ── Pass 1: find max ──
+    movz    w4, #0xFF80, lsl #16   // -inf
+    fmov    s16, w4
+    mov     z16.s, s16
+    mov     w12, w22
+.L_soft_max:
+    cbz     w12, .L_soft_max_done
+    ld1w    {z0.s}, p0/z, [x8]
+    fmax    z16.s, p0/m, z16.s, z0.s
+    add     x8, x8, x9, lsl #2
+    sub     w12, w12, w9
+    cbnz    w12, .L_soft_max
+.L_soft_max_done:
+    fmaxv   s16, p0, z16.s
+    mov     z16.s, s16
+    // ── Pass 2: exp(x - max) + accumulate sum ──
+    fmov    z17.s, #0.0
+    mov     x8, x14
+    mov     x11, x15
+    mov     w12, w22
+.L_soft_exp:
+    cbz     w12, .L_soft_exp_done
+    ld1w    {z0.s}, p0/z, [x8]
+    fsub    z0.s, z0.s, z16.s
+    fmul    z1.s, z0.s, z28.s     // x * log2(e)
+    frintm  z2.s, p0/m, z1.s      // n = floor
+    fsub    z3.s, z1.s, z2.s      // frac
+    fmul    z4.s, z29.s, z3.s     // c4*f
+    fadd    z4.s, z4.s, z30.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z31.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z27.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z26.s     // poly(frac)
+    fcvtzs  z5.s, p0/m, z2.s
+    mov     z6.s, #-127
+    smax    z5.s, p0/m, z5.s, z6.s
+    add     z5.s, z5.s, #127
+    lsl     z5.s, z5.s, #23       // 2^n as IEEE bits
+    fmul    z4.s, z4.s, z5.s      // exp(x - max)
+    st1w    {z4.s}, p0, [x11]
+    fadd    z17.s, z17.s, z4.s
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    sub     w12, w12, w9
+    b       .L_soft_exp
+.L_soft_exp_done:
+    // ── Pass 3: normalize ──
+    faddv   s17, p0, z17.s
+    fmov    s18, #1.0
+    fdiv    s17, s18, s17          // 1/sum
+    mov     z17.s, s17
+    mov     x11, x15
+    mov     w12, w22
+.L_soft_div:
+    cbz     w12, .L_soft_done
+    ld1w    {z0.s}, p0/z, [x11]
+    fmul    z0.s, z0.s, z17.s
+    st1w    {z0.s}, p0, [x11]
+    add     x11, x11, x9, lsl #2
+    sub     w12, w12, w9
+    b       .L_soft_div
+.L_soft_done:
+    b       .L_dispatch
+// ================================================================
+// Q8_0_GEMV (0x57) — Quantized GEMV for llama.cpp Q8_0 format
+// Encoding: [0x57][M:u32][K:u32][input_ptr:u64][weights_ptr:u64][output_ptr:u64]
+// Each Q8_0 block: 2-byte fp16 scale + 32 int8 quants = 34 bytes per 32 elements.
+// Computes output[m] = sum_k dequant(W[m,k]) * input[k] for all M rows.
+// ================================================================
+.L_op_q8_0_gemv:
+    ldr     w22, [x19]             // M (number of output rows)
+    add     x19, x19, #4
+    ldr     w23, [x19]             // K (input dimension, multiple of 32)
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr (fp32, K elements)
+    ldr     x11, [x19], #8        // weights_ptr (Q8_0 blocks, M rows)
+    ldr     x13, [x19], #8        // output_ptr (fp32, M elements)
+    cbz     w22, .L_dispatch       // early exit if M == 0
+    ptrue   p0.s
+    lsr     w24, w23, #5           // num_blocks = K / 32
+    mov     x26, x8               // save input base for resetting each row
+.L_q8_gemv_row:
+    cbz     w22, .L_dispatch       // all rows done
+    mov     z4.d, #0               // zero accumulator for this row
+    mov     x8, x26               // reset input ptr to start of vector
+    mov     w10, w24               // block counter = num_blocks
+.L_q8_gemv_block:
+    cbz     w10, .L_q8_gemv_store
+    // Load fp16 scale from block header, convert to fp32, broadcast
+    ldr     h0, [x11]             // fp16 scale (2 bytes)
+    fcvt    s0, h0                // fp16 -> fp32
+    mov     z16.s, s0             // broadcast scale to all 16 lanes
+    // First half: 16 int8 quants at [block + 2]
+    add     x9, x11, #2           // x9 = &qs[0]
+    ld1sb   {z0.s}, p0/z, [x9]   // load 16 signed int8, sign-extend to int32
+    scvtf   z0.s, p0/m, z0.s     // int32 -> fp32
+    fmul    z0.s, z0.s, z16.s    // dequantize: qs[i] * scale
+    ld1w    {z1.s}, p0/z, [x8]   // load 16 fp32 input values
+    fmla    z4.s, p0/m, z0.s, z1.s // acc += dequant * input
+    add     x8, x8, #64           // input ptr += 16 floats (64 bytes)
+    // Second half: next 16 int8 quants at [block + 18]
+    add     x9, x9, #16           // x9 = &qs[16]
+    ld1sb   {z0.s}, p0/z, [x9]   // load 16 signed int8, sign-extend to int32
+    scvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z0.s, z1.s
+    add     x8, x8, #64           // input ptr += 16 floats
+    // Advance to next Q8_0 block (34 bytes total)
+    add     x11, x11, #34
+    sub     w10, w10, #1
+    b       .L_q8_gemv_block
+.L_q8_gemv_store:
+    faddv   s4, p0, z4.s          // horizontal sum -> scalar result
+    str     s4, [x13], #4         // store output[m], advance output ptr
+    sub     w22, w22, #1
+    b       .L_q8_gemv_row
+// ================================================================
+// Q4_0_GEMV (0x58) — Quantized GEMV for llama.cpp Q4_0 format
+// Encoding: [0x58][M:u32][K:u32][input_ptr:u64][weights_ptr:u64][output_ptr:u64]
+// Each Q4_0 block: 2-byte fp16 scale + 16 packed bytes (32 4-bit values) = 18 bytes.
+// Low nibble of byte i = element i (0..15), high nibble = element i+16 (16..31).
+// Dequant: float_val = (nibble - 8) * fp16_to_fp32(d)
+// ================================================================
+.L_op_q4_0_gemv:
+    ldr     w22, [x19]             // M (number of output rows)
+    add     x19, x19, #4
+    ldr     w23, [x19]             // K (input dimension, multiple of 32)
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr (fp32, K elements)
+    ldr     x11, [x19], #8        // weights_ptr (Q4_0 blocks, M rows)
+    ldr     x13, [x19], #8        // output_ptr (fp32, M elements)
+    cbz     w22, .L_dispatch       // early exit if M == 0
+    ptrue   p0.s
+    lsr     w24, w23, #5           // num_blocks = K / 32
+    mov     x26, x8               // save input base for resetting each row
+    // Prepare constant: 8 in every 32-bit lane for unsigned->signed offset
+    mov     w9, #8
+    dup     z17.s, w9              // z17 = {8, 8, ..., 8} for subtracting bias
+.L_q4_gemv_row:
+    cbz     w22, .L_dispatch       // all rows done
+    mov     z4.d, #0               // zero accumulator for this row
+    mov     x8, x26               // reset input ptr to start of vector
+    mov     w10, w24               // block counter = num_blocks
+.L_q4_gemv_block:
+    cbz     w10, .L_q4_gemv_store
+    // Load fp16 scale from block header, convert to fp32, broadcast
+    ldr     h0, [x11]             // fp16 scale (2 bytes)
+    fcvt    s0, h0                // fp16 -> fp32
+    mov     z16.s, s0             // broadcast scale to all 16 lanes
+    // Load 16 packed bytes (32 nibbles) from [block + 2]
+    add     x9, x11, #2           // x9 = &qs[0]
+    ld1b    {z0.s}, p0/z, [x9]   // load 16 bytes, zero-extend each to 32-bit lane
+    // Extract LOW nibbles (elements 0..15): val = (byte & 0x0F) - 8
+    mov     z2.d, z0.d             // copy before destructive AND
+    and     z2.s, z2.s, #0x0F     // isolate low nibble in each lane
+    sub     z2.s, z2.s, z17.s     // subtract 8: unsigned [0,15] -> signed [-8,+7]
+    scvtf   z2.s, p0/m, z2.s     // int32 -> fp32
+    fmul    z2.s, z2.s, z16.s    // dequantize: signed_val * scale
+    ld1w    {z1.s}, p0/z, [x8]   // load 16 fp32 inputs (elements 0..15)
+    fmla    z4.s, p0/m, z2.s, z1.s // acc += dequant * input
+    add     x8, x8, #64           // input ptr += 16 floats (64 bytes)
+    // Extract HIGH nibbles (elements 16..31): val = (byte >> 4) - 8
+    lsr     z3.s, z0.s, #4        // shift right 4 bits
+    and     z3.s, z3.s, #0x0F     // mask nibble (top bits already zero from zero-extend+shift)
+    sub     z3.s, z3.s, z17.s     // subtract 8
+    scvtf   z3.s, p0/m, z3.s
+    fmul    z3.s, z3.s, z16.s
+    ld1w    {z1.s}, p0/z, [x8]   // load 16 fp32 inputs (elements 16..31)
+    fmla    z4.s, p0/m, z3.s, z1.s
+    add     x8, x8, #64           // input ptr += 16 floats
+    // Advance to next Q4_0 block (18 bytes total)
+    add     x11, x11, #18
+    sub     w10, w10, #1
+    b       .L_q4_gemv_block
+.L_q4_gemv_store:
+    faddv   s4, p0, z4.s          // horizontal sum -> scalar result
+    str     s4, [x13], #4         // store output[m], advance output ptr
+    sub     w22, w22, #1
+    b       .L_q4_gemv_row

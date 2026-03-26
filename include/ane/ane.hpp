@@ -124,7 +124,17 @@ enum class Op : uint8_t {
     fmopa_zreg                   = 0x4C,  ///< za{tile}.s += z{src1}.s * z{src2}.s (fp32), [tile:u8][src1:u8][src2:u8]
     cblas_sgemm                  = 0x4D,  ///< C = alpha*op(A)*op(B) + beta*C, BLAS GEMM with strides
     fclamp_zreg                  = 0x4E,  ///< clamp/max/min: [flags:u8][dst:u8][src:u8][lo:f32][hi:f32]
-    NUM_OPCODES                  = 0x4F,
+    faddv_zreg                   = 0x4F,  ///< Horizontal sum: dst = broadcast(sum(src)), [dst:u8][src:u8]
+    frsqrt_zreg                  = 0x50,  ///< Reciprocal sqrt: dst[i] = 1/sqrt(src[i]), [dst:u8][src:u8]
+    rms_norm_fp32                = 0x51,  ///< RMS normalization: out = in * rsqrt(mean(in^2)+eps) * weight
+    broadcast_scalar_zreg        = 0x52,  ///< Fill dst with scalar value, [dst:u8][value:f32]
+    fscale_zreg                  = 0x53,  ///< dst = src * scalar, [dst:u8][src:u8][scalar:f32]
+    silu_fp32                    = 0x54,  ///< SiLU: out[i] = in[i]*sigmoid(in[i]), [count:u32][input_ptr:u64][output_ptr:u64]
+    rope_fp32                    = 0x55,  ///< RoPE: rotary position embedding, [dim:u32][pos:u32][theta:f32][in:u64][out:u64]
+    softmax_fp32                 = 0x56,  ///< Standalone softmax: out = softmax(in), [dim:u32][in:u64][out:u64]
+    q8_0_gemv                    = 0x57,  ///< Q8_0 quantized GEMV: out = dequant(W_q8) * input, [M:u32][K:u32][in:u64][W:u64][out:u64]
+    q4_0_gemv                    = 0x58,  ///< Q4_0 quantized GEMV: out = dequant(W_q4) * input, [M:u32][K:u32][in:u64][W:u64][out:u64]
+    NUM_OPCODES                  = 0x59,
 };
 /** --------------------------------------------------------------------------------------------------------- IsZVector / IsZStream helpers
  * @brief Type trait helpers to detect z_vector<T> and z_stream<T> without requiring T::value_type
