@@ -13,11 +13,19 @@
 #if defined(__aarch64__) && defined(__APPLE__)
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <array>
 #include <concepts>
 #include <type_traits>
+#include <initializer_list>
+#include <string>
 #include <simd/simd.h>
 #include <vector>
+#include <ane/tiles/concepts.hpp>
+#include <ane/tiles/z_vector.hpp>
+#include <ane/tiles/z_stream.hpp>
+#include <ane/tiles/z_tiles.hpp>
+#include <ane/tiles/lut.hpp>
 
 namespace ane {
 namespace interpreter {
@@ -68,8 +76,78 @@ enum class Op : uint8_t {
     quantize_fp32_i8_channelwise = 0x1C,  ///< Per-row symmetric quantize fp32 to i8
     transpose_i8                 = 0x1D,  ///< Transpose M*N int8 matrix to N*M
     dense_u8s8                   = 0x1E,  ///< UINT8×INT8 matmul via USMOPA: C = dequant(A_u8 @ B_i8) (+relu)
-    NUM_OPCODES                  = 0x1F,
+    load                         = 0x1F,  ///< Load one z-vector from ptr into z0, 1 operand
+    store                        = 0x20,  ///< Store one z-vector from z0 to ptr, 1 operand
+    l2_squared_fp32              = 0x21,  ///< Fused L2 squared distance fp32: sum((a-b)^2)
+    l2_squared_bf16              = 0x22,  ///< Fused L2 squared distance bf16 inputs, fp32 accum
+    l2_squared_f64               = 0x23,  ///< Fused L2 squared distance f64
+    cosine_dist_fp32             = 0x24,  ///< Cosine distance fp32: 1 - dot(a,b)/(||a||*||b||)
+    cosine_dist_bf16             = 0x25,  ///< Cosine distance bf16 inputs, fp32 accum
+    cosine_dist_f64              = 0x26,  ///< Cosine distance f64
+    normalize_fp32               = 0x27,  ///< In-place unit normalize fp32 vector
+    dct2_forward_fp32            = 0x28,  ///< H.264 4-point integer butterfly DCT-II forward, groups of 4 fp32
+    dct2_inverse_fp32            = 0x29,  ///< H.264 4-point integer butterfly DCT-II inverse, groups of 4 fp32
+    threshold_bitmap_fp32        = 0x2A,  ///< Compare fp32 > threshold, produce packed bit output
+    welford_stats_fp32           = 0x2B,  ///< Online Welford mean/stddev/maxabs/scale across n_vectors of dim fp32
+    quantize_pack_4bit_fp32      = 0x2C,  ///< Quantize fp32 to signed 4-bit SoA packed nibbles (dual src)
+    threshold_8bit               = 0x2D,  ///< Reconstruct 8-bit counters from bitplanes, threshold to bitmap
+    quantize_accum_2bit          = 0x2E,  ///< 2-bit ternary {-1,0,+1} decode, scale by bf16, accumulate bf16
+    accum_8bit                   = 0x2F,  ///< INT8 scale-accumulate: accum[i] += data[i] * scale[i] in bf16
+    soa_sub_scale_bf16           = 0x30,  ///< SoA quantized L2 partial: accum[i] += bf16((src[i]*scale-scalar)^2)
+    soa_luti2_accum              = 0x31,  ///< LUTI2 expand 2-bit indices via ZT0, accumulate into bf16
+    soa_luti4_accum              = 0x32,  ///< LUTI4 expand 4-bit indices via ZT0, accumulate into bf16
+    bitmap_score_pipeline        = 0x33,  ///< Ripple-carry bitmap accumulate, threshold, extract candidate IDs
+    mov_zreg                     = 0x34,  ///< Move z{src} to z{dst}, [src:u8][dst:u8]
+    loop_begin                   = 0x35,  ///< Set loop counter, [count:u8] (max 255 iterations)
+    loop_end                     = 0x36,  ///< Decrement counter, jump back by [offset:u16] bytes
+    set_param                    = 0x37,  ///< Set param table entry, [idx:u8][ptr:u64]
+    load_param                   = 0x38,  ///< Load one z-vector from param[idx] into z0, [idx:u8]
+    store_param                  = 0x39,  ///< Store z0 to param[idx], [idx:u8]
+    advance_param                = 0x3A,  ///< Advance param[idx] pointer by VL bytes, [idx:u8]
+    fadd_zreg                    = 0x3B,  ///< z{dst}.s = z{src1}.s + z{src2}.s, [dst:u8][src1:u8][src2:u8]
+    fsub_zreg                    = 0x3C,  ///< z{dst}.s = z{src1}.s - z{src2}.s, [dst:u8][src1:u8][src2:u8]
+    fmul_zreg                    = 0x3D,  ///< z{dst}.s = z{src1}.s * z{src2}.s, [dst:u8][src1:u8][src2:u8]
+    fmla_zreg                    = 0x3E,  ///< z{dst}.s += z{src1}.s * z{src2}.s, [dst:u8][src1:u8][src2:u8]
+    and_zreg                     = 0x3F,  ///< z{dst} = z{src1} AND z{src2}, [dst:u8][src1:u8][src2:u8]
+    orr_zreg                     = 0x40,  ///< z{dst} = z{src1} OR z{src2}, [dst:u8][src1:u8][src2:u8]
+    eor_zreg                     = 0x41,  ///< z{dst} = z{src1} XOR z{src2}, [dst:u8][src1:u8][src2:u8]
+    not_zreg                     = 0x42,  ///< z{dst} = NOT z{src}, [dst:u8][src:u8]
+    lsl_zreg                     = 0x43,  ///< z{dst} = z{src} << amount, [dst:u8][src:u8][amount:u8]
+    lsr_zreg                     = 0x44,  ///< z{dst} = z{src} >> amount (logical), [dst:u8][src:u8][amount:u8]
+    asr_zreg                     = 0x45,  ///< z{dst} = z{src} >> amount (arithmetic), [dst:u8][src:u8][amount:u8]
+    load_zt0                     = 0x46,  ///< Load 64 bytes into ZT0 table register, [ptr:u64]
+    luti2_zreg                   = 0x47,  ///< z{dst}.b = luti2(zt0, z{src}[0]), [dst:u8][src:u8]
+    luti4_zreg                   = 0x48,  ///< z{dst}.b = luti4(zt0, z{src}[0]), [dst:u8][src:u8]
+    smopa_zreg                   = 0x49,  ///< za{tile}.s += z{src1}.b * z{src2}.b (signed), [tile:u8][src1:u8][src2:u8]
+    umopa_zreg                   = 0x4A,  ///< za{tile}.s += z{src1}.b * z{src2}.b (unsigned), [tile:u8][src1:u8][src2:u8]
+    usmopa_zreg                  = 0x4B,  ///< za{tile}.s += z{src1}.b * z{src2}.b (u*s), [tile:u8][src1:u8][src2:u8]
+    fmopa_zreg                   = 0x4C,  ///< za{tile}.s += z{src1}.s * z{src2}.s (fp32), [tile:u8][src1:u8][src2:u8]
+    cblas_sgemm                  = 0x4D,  ///< C = alpha*op(A)*op(B) + beta*C, BLAS GEMM with strides
+    fclamp_zreg                  = 0x4E,  ///< clamp/max/min: [flags:u8][dst:u8][src:u8][lo:f32][hi:f32]
+    NUM_OPCODES                  = 0x4F,
 };
+/** --------------------------------------------------------------------------------------------------------- IsZVector / IsZStream helpers
+ * @brief Type trait helpers to detect z_vector<T> and z_stream<T> without requiring T::value_type
+ * on non-class types. Uses partial specialization to avoid SFINAE failures on scalars.
+ */
+template<typename T> struct is_z_vector : std::false_type {};
+template<ValidZType T> struct is_z_vector<z_vector<T>> : std::true_type {};
+template<typename T> struct is_z_stream : std::false_type {};
+template<ValidZType T> struct is_z_stream<z_stream<T>> : std::true_type {};
+/** --------------------------------------------------------------------------------------------------------- AllowedParameterTypes Concept
+ * @brief Concept to constrain valid parameter types for dispatch() and program::emit().
+ *  - ValidZType scalars (uint8_t, uint32_t, float, etc.) for immediates
+ *  - z_vector<T> and z_stream<T> for typed pointer operands
+ *  - aligned_pointer for raw aligned pointer operands
+ *  - Op for opcode values
+ */
+template<typename T>
+concept AllowedParameterTypes = ValidZType<T>
+    || std::same_as<T, bool>
+    || std::is_pointer_v<T>
+    || is_z_vector<T>::value
+    || is_z_stream<T>::value
+    || std::is_same_v<T, aligned_pointer>;
 /** --------------------------------------------------------------------------------------------------------- Opcode Dispatch
  * @brief Dispatches an operation to the assembly interpreter by encoding the opcode and its arguments into a
  * byte stream.
@@ -77,6 +155,7 @@ enum class Op : uint8_t {
  * @param args Immediates (uint32_t, int, float, uint8_t, bool) and operand pointers in encoding order
  */
 template<typename... Args>
+    requires (AllowedParameterTypes<Args> && ...)
 inline void dispatch(Op op, Args... args) {
     constexpr size_t size_needed = 1 + (sizeof(Args) + ...);
     alignas(8) uint8_t bytecodes[size_needed] = {};
@@ -90,324 +169,168 @@ inline void dispatch(Op op, Args... args) {
     asm volatile("" ::: "memory");  // prevent dead store elimination of bytecodes
     interpreter::stream_exec(bytecodes, size_needed);
 }
-/** --------------------------------------------------------------------------------------------------------- ValidZType Concept
- * @brief Concept to constrain valid types for z_stream operations. This includes all the standard
- * integer and floating-point types that the Apple Neural Engine supports for its vectorized
+/** --------------------------------------------------------------------------------------------------------- Program
+ * @class program
+ * @brief Builds a multi-opcode bytecode program that executes in a single streaming session.
+ *  - Use emit() to append opcodes and their arguments to the program buffer.
+ *  - Call exec() to execute the entire program in one smstart/smstop pair.
+ *  - Z-registers and ZA tiles persist across opcodes within the same program.
  */
-template<typename T>
-concept ValidZType = std::same_as<T, float>
-    || std::same_as<T, int32_t>
-    || std::same_as<T, uint32_t>
-    || std::same_as<T, int16_t>
-    || std::same_as<T, uint16_t>
-    || std::same_as<T, int8_t>
-    || std::same_as<T, uint8_t>
-    || std::same_as<T, bfloat16_t>
-    || std::same_as<T, double>
-    || std::same_as<T, int64_t>
-    || std::same_as<T, uint64_t>;
-/** --------------------------------------------------------------------------------------------------------- SIMDVectorEquivalent Concept
- * @brief Concept to constrain types that have a corresponding SIMD vector type in simd.h.
- * Makes sure memory is aligned and adds a lot of stuff so we don't have to
- */
-template<typename T>
-concept SIMDVectorEquivalent = std::same_as<T, simd_float16>
-    || std::same_as<T, simd_uchar64>
-    || std::same_as<T, simd_char64>
-    || std::same_as<T, simd_ushort32>
-    || std::same_as<T, simd_short32>
-    || std::same_as<T, simd_half32>
-    || std::same_as<T, simd_int16>
-    || std::same_as<T, simd_uint16>
-    || std::same_as<T, simd_long8>
-    || std::same_as<T, simd_ulong8>
-    || std::same_as<T, simd_double8>;
-/** --------------------------------------------------------------------------------------------------------- LUTCompatible Concept
- * @brief Concept to constrain types that are compatible with the LUTI2 or LUTI4 instructions.
- */
-template<typename T>
-concept LUTCompatible = std::same_as<T, uint8_t>
-    || std::same_as<T, int8_t>
-    || std::same_as<T, uint16_t>
-    || std::same_as<T, int16_t>
-    || std::same_as<T, bfloat16_t>
-    || std::same_as<T, uint32_t>
-    || std::same_as<T, int32_t>
-    || std::same_as<T, float>;
-/** --------------------------------------------------------------------------------------------------------- luti4
- * @struct luti4
- * @brief A helper utility struct for working with the LUTI4 instruction, which performs a 4-bit indexed
- * lookup into a 4-element or 16-element table.
- */
-template<LUTCompatible T>
-struct alignas(64) luti4 {
-    /// @brief The underlying data array for the lookup table, aligned to 64 bytes.
-    std::array<T, 16> data;
-    /** --------------------------------------------------------------------------------- Default Constructor
-     * @brief Default constructor initializes the lookup table with zeros
-     */
-    luti4(T init_val = 0) {
-        data.fill(init_val);
-    }
-    /** --------------------------------------------------------------------------------- Construct from Array
-     * @brief Constructor that initializes the lookup table with the provided array of
-     * values. The input array must have exactly 16 elements, which will be copied into
-     * the internal data array.
-     * @param init_data The array of values to initialize the lookup table with.
-     */
-    luti4(const std::array<T, 16>& init_data) : data(init_data) {}
-    /**
-     * @brief Constructor that initializes the lookup table with the provided vector of
-     * values. The input vector must have exactly 16 elements, which will be copied into
-     * the internal data array.
-     * @param init_data The vector of values to initialize the lookup table with
-     * (must have 16 elements)
-     */
-    luti4(const std::vector<T>& init_data) {
-        if (init_data.size() != 16) [[unlikely]] {
-            throw std::invalid_argument("Initializer vector must have exactly"
-                " 16 elements for luti4");
-        }
-        std::memcpy(data.data(), init_data.data(), 16 * sizeof(T));
-    }
-    /** --------------------------------------------------------------------------------- Construct from Initializer List
-     * @brief Constructor that initializes the lookup table with the provided initializer
-     * list of values. The input initializer list must have exactly 16 elements, which
-     * will be copied into the internal data array.
-     * @param init_list The initializer list of values to initialize the lookup table
-     * with (must have 16 elements)
-     */
-    luti4(std::initializer_list<T> init_list) {
-        if (init_list.size() != 16) [[unlikely]] {
-            throw std::invalid_argument("Initializer list must have exactly"
-                " 16 elements for luti4");
-        }
-        std::copy(init_list.begin(), init_list.end(), data.begin());
-    }
-    /** --------------------------------------------------------------------------------- Construct from Individual Values
-     * @brief Constructor that initializes the lookup table with the provided individual
-     * values. The constructor takes 16 individual values as parameters, which will be
-     * copied into the internal data array.
-     * @param val0 The first value to initialize the lookup table with
-     * @param val1 The second value to initialize the lookup table with
-     * @param val2 The third value to initialize the lookup table with
-     * @param val3 The fourth value to initialize the lookup table with
-     * @param val4 The fifth value to initialize the lookup table with
-     * @param val5 The sixth value to initialize the lookup table with
-     * @param val6 The seventh value to initialize the lookup table with
-     * @param val7 The eighth value to initialize the lookup table with
-     * @param val8 The ninth value to initialize the lookup table with
-     * @param val9 The tenth value to initialize the lookup table with
-     * @param val10 The eleventh value to initialize the lookup table with
-     * @param val11 The twelfth value to initialize the lookup table with
-     * @param val12 The thirteenth value to initialize the lookup table with
-     * @param val13 The fourteenth value to initialize the lookup table with
-     * @param val14 The fifteenth value to initialize the lookup table with
-     * @param val15 The sixteenth value to initialize the lookup table with
-     */
-    luti4(
-        T val0, T val1, T val2, T val3, T val4, T val5, T val6, T val7,
-        T val8, T val9, T val10, T val11, T val12, T val13, T val14, T val15
-    ) : data{val0, val1, val2, val3, val4, val5, val6, val7, val8, val9,
-        val10, val11, val12, val13, val14, val15} {}
-    /** --------------------------------------------------------------------------------- Get Value
-     * @brief Gets a reference to the value at the specified index in the lookup table.
-     * The index should be in the range [0, 15], and the function will return a reference
-     * to the corresponding value in the internal data array.
-     * @param index The index of the value to get (should be in the range [0, 15])
-     * @return A reference to the value at the specified index in the lookup table
-     */
-    T& operator[](size_t index) {
-        if (index >= data.size()) [[unlikely]] {
-            throw std::out_of_range("Index out of range for luti4");
-        }
-        return data[index];
-    }
-    /** --------------------------------------------------------------------------------- Get Value (const)
-     * @brief Gets a const reference to the value at the specified index in the lookup
-     * table. The index should be in the range [0, 15], and the function will return a
-     * const reference to the corresponding value in the internal data array.
-     * @param index The index of the value to get (should be in the range [0, 15])
-     * @return A const reference to the value at the specified index in the lookup table
-     */
-    const T& operator[](size_t index) const {
-        if (index >= data.size()) [[unlikely]] {
-            throw std::out_of_range("Index out of range for luti4");
-        }
-        return data[index];
-    }
-};
-/** --------------------------------------------------------------------------------------------------------- luti2
- * @struct luti2
- * @brief A helper utility struct for working with the LUTI2 instruction, which performs a 2-bit indexed
- * lookup into a 4-element table.
- */
-template<LUTCompatible T>
-struct luti2 {
-    /// @brief The underlying data array for the lookup table, aligned to 64 bytes.
-    std::array<T, 4> data;
-    /** --------------------------------------------------------------------------------- Default Constructor
-     * @brief Default constructor initializes the lookup table with zeros
-     */
-    luti2(T init_val = 0) {
-        data.fill(init_val);
-    }
-    /** --------------------------------------------------------------------------------- Construct from Array
-     * @brief Constructor that initializes the lookup table with the provided array of
-     * values. The input array must have exactly 4 elements, which will be copied into
-     * the internal data array.
-     * @param init_data The array of values to initialize the lookup table with.
-     */
-    luti2(const std::array<T, 4>& init_data) : data(init_data) {}
-    /**
-     * @brief Constructor that initializes the lookup table with the provided vector of
-     * values. The input vector must have exactly 4 elements, which will be copied into
-     * the internal data array.
-     * @param init_data The vector of values to initialize the lookup table with
-     * (must have 4 elements)
-     */
-    luti2(const std::vector<T>& init_data) {
-        if (init_data.size() != 4) [[unlikely]] {
-            throw std::invalid_argument("Initializer vector must have exactly"
-                " 4 elements for luti2");
-        }
-        std::memcpy(data.data(), init_data.data(), 4 * sizeof(T));
-    }
-    /** --------------------------------------------------------------------------------- Construct from Initializer List
-     * @brief Constructor that initializes the lookup table with the provided initializer
-     * list of values. The input initializer list must have exactly 4 elements, which
-     * will be copied into the internal data array.
-     * @param init_list The initializer list of values to initialize the lookup table
-     * with (must have 4 elements)
-     */
-    luti2(std::initializer_list<T> init_list) {
-        if (init_list.size() != 4) [[unlikely]] {
-            throw std::invalid_argument("Initializer list must have exactly"
-                " 4 elements for luti2");
-        }
-        std::copy(init_list.begin(), init_list.end(), data.begin());
-    }
-    /** --------------------------------------------------------------------------------- Construct from Individual Values
-     * @brief Constructor that initializes the lookup table with the provided individual
-     * values. The constructor takes 4 individual values as parameters, which will be
-     * copied into the internal data array.
-     * @param val0 The first value to initialize the lookup table with
-     * @param val1 The second value to initialize the lookup table with
-     * @param val2 The third value to initialize the lookup table with
-     * @param val3 The fourth value to initialize the lookup table with
-     */
-    luti2(T val0, T val1, T val2, T val3) : data{val0, val1, val2, val3} {}
-    /** --------------------------------------------------------------------------------- Get Value
-     * @brief Gets a reference to the value at the specified index in the lookup table.
-     * The index should be in the range [0, 3], and the function will return a reference
-     * to the corresponding value in the internal data array.
-     * @param index The index of the value to get (should be in the range [0, 3])
-     * @return A reference to the value at the specified index in the lookup table
-     */
-    T& operator[](size_t index) {
-        if (index >= data.size()) [[unlikely]] {
-            throw std::out_of_range("Index out of range for luti2");
-        }
-        return data[index];
-    }
-    /** --------------------------------------------------------------------------------- Get Value (const)
-     * @brief Gets a const reference to the value at the specified index in the lookup
-     * table. The index should be in the range [0, 3], and the function will return a const reference to the corresponding value in the internal data array.
-     * @param index The index of the value to get (should be in the range [0, 3])
-     * @return A const reference to the value at the specified index in the lookup table
-     */
-    const T& operator[](size_t index) const {
-        if (index >= data.size()) [[unlikely]] {
-            throw std::out_of_range("Index out of range for luti2");
-        }
-        return data[index];
-    }
-};
-/** --------------------------------------------------------------------------------------------------------- z_stream 
- * @class z_stream
- * @brief A helper class to manage a stream of z[n] registers for use in assembly kernels.
- * This class abstracts away the details of allocating and managing the aligned memory needed 
- * for streaming data into the z[n] registers, and provides a convenient interface for working
- * with streams of vectors of various types and various operations.
- */
-template<ValidZType T>
-class z_stream {
+class program {
 private:
-    /// @brief Type-erased pointer to allocate the aligned memory for the z_stream
-    T* data_ = nullptr;
-    /// @brief Number of zvecs (512-bit vectors) allocated in the stream
-    size_t num_zvecs_ = 0;
-    /** --------------------------------------------------------------------------------- Aligned Memory Allocation
-     * @brief Allocates aligned memory for the z_stream based on the number of zvecs
-     * needed. Each zvec is 64 bytes, so the total size allocated is num_zvecs * 64
-     * bytes, rounded up to the nearest multiple of 64 for alignment.
-     * @param size The total size in bytes needed for the z_stream (should be
-     * num_zvecs * 64) 
-     */
-    void alignedAlloc(size_t size) {
-        size <<= 6; // Multiply by 64 to get the total size in bytes
-        // Align to the size of the full za.b tile (4096 bytes) to ensure optimal
-        // access patterns for streaming
-        data_ = static_cast<T*>(std::aligned_alloc(4096, size));
-        if (!data_) [[unlikely]] {
-            std::string error_msg = "Failed to allocate memory for z_stream:"
-                    " requested size " + std::to_string(size) + " bytes";
-            throw std::runtime_error(error_msg);
-        }
-    }
+    std::vector<uint8_t> bytecodes_;  ///< Accumulated bytecode buffer
+    std::vector<size_t> loop_marks_;  ///< Stack of loop body start offsets for begin_loop/end_loop
 public:
-    /** --------------------------------------------------------------------------------- Constructor
-     * @brief Constructor for z_stream. Allocates memory for the specified number of
-     * zvecs, each of which is 512 bits (64 bytes).
-     * @param num_zvecs The number of 512-bit vectors (zvecs) to allocate in the stream
+    /** --------------------------------------------------------------------------------------------- Emit
+     * @brief Appends a single opcode and its arguments to the program buffer.
+     * @param op The opcode to emit
+     * @param args Immediates and operand pointers in encoding order
+     * @return Reference to this program for chaining
      */
-    z_stream(size_t num_zvecs) : num_zvecs_(num_zvecs) {
-        alignedAlloc(num_zvecs_);
+    template<typename... Args>
+        requires (AllowedParameterTypes<Args> && ...)
+    program& emit(Op op, Args... args) {
+        bytecodes_.push_back(static_cast<uint8_t>(op));
+        auto append = [&](auto arg) {
+            const auto* p = reinterpret_cast<const uint8_t*>(&arg);
+            bytecodes_.insert(bytecodes_.end(), p, p + sizeof(arg));
+        };
+        (append(args), ...);
+        return *this;
     }
-    /** --------------------------------------------------------------------------------- Destructor
-     * @brief Destructor for z_stream. Frees the allocated memory for the stream.
+    /** --------------------------------------------------------------------------------------------- Mark
+     * @brief Returns the current bytecode offset, for use as a loop target or jump reference.
+     * @return Current offset in bytes from the start of the program
      */
-    ~z_stream() {
-        if (data_) {
-            std::free(data_);
-        }
-    }
-    // Delete copy constructor and copy assignment operator to prevent accidental copying
-    z_stream(const z_stream&) = delete;
-    z_stream& operator=(const z_stream&) = delete;
-    /** --------------------------------------------------------------------------------- Get Pointer
-     * @brief Gets a pointer to the raw data of the z_stream. This pointer can be used
-     * to load data into the zvecs for streaming into assembly kernels. The pointer is
-     * typed as T* for convenience, but it actually points to the aligned memory
-     * allocated for the z_stream, which is suitable for use with the z[n] registers.
-     * @tparam T The SIMD vector type of the z_stream (e.g., simd_float16, simd_uchar64,
-     * etc.).
+    size_t mark() const { return bytecodes_.size(); }
+    /** --------------------------------------------------------------------------------------------- Exec
+     * @brief Executes the entire program in a single streaming session (one smstart/smstop pair).
+     *  - All z-registers and ZA tiles persist across opcodes within this call.
+     *  - After exec(), the program buffer is NOT cleared — call clear() to reuse.
      */
-    template<SIMDVectorEquivalent U = T>
-        requires std::same_as<U, T> || std::is_convertible_v<T, U>
-    U* ptr() {
-        return data_;
+    void exec() {
+        if (bytecodes_.empty()) return;
+        asm volatile("" ::: "memory");
+        interpreter::stream_exec(bytecodes_.data(), bytecodes_.size());
     }
-    /** --------------------------------------------------------------------------------- Get Const Pointer
-     * @brief Gets a const pointer to the raw data of the z_stream. This can be used
-     * when the z_stream is only being read from (e.g., for streaming data into kernels
-     * without modifying it).
-     * @tparam T The SIMD vector type of the z_stream (e.g., simd_float16, simd_uchar64,
-     * etc.).
+    /** --------------------------------------------------------------------------------------------- Exec Tiles
+     * @brief Executes the program and returns the scratchpad (ZA) state.
+     *  - Appends a store_tiles instruction, runs everything, returns the captured tiles.
+     *  - The appended instruction is removed afterward so the program can be reused.
+     * @param tiles Reference to a z_tiles struct to receive the scratchpad state
      */
-    template<SIMDVectorEquivalent U = T>
-        requires std::same_as<U, T> || std::is_convertible_v<T, U>
-    const U* ptr() const {
-        return data_;
+    void exec_into(z_tiles& tiles) {
+        size_t saved_size = bytecodes_.size();
+        emit(Op::store_tiles, reinterpret_cast<uintptr_t>(tiles.ptr()));
+        exec();
+        bytecodes_.resize(saved_size);
     }
-    /** --------------------------------------------------------------------------------- Clone
-     * @brief Creates a deep copy of the z_stream with the same number of zvecs and data.
+    /** --------------------------------------------------------------------------------------------- Exec Returning Variable
+     * @brief Executes the program and copies a specific variable slot to an output buffer.
+     *  - Appends mov_zreg + store instructions, runs everything, removes the appended instructions.
+     * @param var_slot Which variable slot to read (0-31)
+     * @param out_ptr Where to write the 64 bytes (must be 64-byte aligned)
      */
-    z_stream clone() const {
-        z_stream copy(num_zvecs_);
-        std::memcpy(copy.data_, data_, num_zvecs_ << 6); // num_zvecs * 64 bytes
-        return copy;
+    void exec_returning(uint8_t var_slot, void* out_ptr) {
+        size_t saved_size = bytecodes_.size();
+        emit(Op::mov_zreg, var_slot, uint8_t(0));
+        emit(Op::store, reinterpret_cast<uintptr_t>(out_ptr));
+        exec();
+        bytecodes_.resize(saved_size);
     }
+    /** --------------------------------------------------------------------------------------------- Clear
+     * @brief Clears the bytecode buffer so the program can be rebuilt.
+     */
+    void clear() { bytecodes_.clear(); loop_marks_.clear(); }
+    /** --------------------------------------------------------------------------------------------- Size
+     * @brief Returns the current size of the bytecode buffer in bytes.
+     */
+    size_t size() const { return bytecodes_.size(); }
+    /** --------------------------------------------------------------------------------------------- Patch U32
+     * @brief Patches a uint32_t value at a specific byte offset in the bytecodes buffer.
+     *  - Used by the DSL compiler for fixups (e.g., patching loop counts at label sites).
+     * @param offset Byte offset into the bytecodes buffer
+     * @param value The uint32_t value to write
+     */
+    void patch_u8(size_t offset, uint8_t value) { bytecodes_[offset] = value; }
+    void patch_u32(size_t offset, uint32_t value) {
+        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
+    }
+    /** --------------------------------------------------------------------------------------------- Append
+     * @brief Appends another program's bytecodes to this one.
+     * @param other The program whose bytecodes to append
+     */
+    void append(const program& other) {
+        bytecodes_.insert(bytecodes_.end(), other.bytecodes_.begin(), other.bytecodes_.end());
+    }
+    /** --------------------------------------------------------------------------------------------- Begin Loop
+     * @brief Emits a loop_begin opcode and records the body start for end_loop().
+     * @param count Number of iterations
+     * @return Reference to this program for chaining
+     */
+    program& begin_loop(uint8_t count) {
+        emit(Op::loop_begin, count);
+        loop_marks_.push_back(bytecodes_.size());
+        return *this;
+    }
+    /** --------------------------------------------------------------------------------------------- End Loop
+     * @brief Emits loop_end with the correct rewind offset.
+     * @return Reference to this program for chaining
+     */
+    program& end_loop() {
+        size_t body_start = loop_marks_.back();
+        loop_marks_.pop_back();
+        uint16_t offset = static_cast<uint16_t>(bytecodes_.size() - body_start + 3);
+        emit(Op::loop_end, offset);
+        return *this;
+    }
+};
+/** --------------------------------------------------------------------------------------------------------- script
+ * @class script
+ * @brief Compiles a DSL source string into a reusable bytecode program.
+ *  - Variables (ZVEC_F32) are auto-assigned to z-registers.
+ *  - params[N] references map to the param table. Pointers are passed at exec() time.
+ *  - Labels and goto provide counted loops.
+ *  - Arithmetic operators (+, -, *) compile to register-addressed bytecode ops.
+ *
+ * Example:
+ * @code
+ *   ane::script s(R"(
+ *       a: ZVEC_F32;
+ *       b: ZVEC_F32;
+ *       _LOOP_:;
+ *       a.load(params[0]);
+ *       b.load(params[1]);
+ *       a = a + b;
+ *       a.save(params[2]);
+ *       params[0]++;
+ *       params[1]++;
+ *       params[2]++;
+ *       goto _LOOP_ 64;
+ *   )");
+ *   s.exec({src_a_ptr, src_b_ptr, dst_ptr});
+ * @endcode
+ */
+class script {
+public:
+    std::string source;      ///< DSL source text
+private:
+    program compiled_;        ///< Compiled bytecodes (without set_param preamble)
+    bool compiled_valid_ = false;  ///< Whether compiled_ is up to date
+public:
+    script(const char* src);
+    script(const std::string& src);
+    /** --------------------------------------------------------------------------------------------- Compile
+     * @brief Compiles the DSL source into bytecodes. Called automatically by exec() if needed.
+     */
+    void compile();
+    /** --------------------------------------------------------------------------------------------- Exec
+     * @brief Executes the script with the given parameter pointers in a single streaming session.
+     *  - Emits set_param for each pointer, appends the compiled body, and runs it all.
+     *  - Pointers should be z_stream-compatible (64-byte aligned).
+     * @param params Ordered list of parameter pointers (matches params[0], params[1], etc.)
+     */
+    void exec(std::initializer_list<const void*> params);
 };
 } // namespace ane
 #else

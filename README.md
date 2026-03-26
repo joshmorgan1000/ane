@@ -25,6 +25,12 @@ bash tests/run_full_throughput_tests.sh    # Run it yourself
 
 ---
 
+## Bytecode Interpreter?
+
+The `smstart` and `smstop` come with a little bit of overhead. They call it streaming for a reason, it is designed so that several streaming operations happen within a single streaming session. How many exactly? I'm not sure yet. Right now the bytecode programs are limited to 1 loop that can only repeat 255 times. We'll see how that goes.
+
+---
+
 ## Quick Start
 
 ```bash

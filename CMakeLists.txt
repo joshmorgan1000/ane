@@ -149,6 +149,7 @@ endif()
 # ── Static library (ane.hpp + bytecode_interpreter.s) ──
 add_library(ane STATIC
     src/bytecode_interpreter.s
+    src/parser.cpp
 )
 target_include_directories(ane PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -170,8 +171,8 @@ enable_testing()
 message(STATUS "======================================================")
 message(STATUS "______________________________________________________")
 message(STATUS "     __     _____ ______  _______ __   _ _______")
-message(STATUS "     |        |   |_____] |_____| | \  | |______")
-message(STATUS "     |_____ __|__ |_____] |     | |  \_| |______")
+message(STATUS "     |        |   |_____] |_____| | \\  | |______")
+message(STATUS "     |_____ __|__ |_____] |     | |  \\_| |______")
 message(STATUS "──────────────────────────────────────────────────────")
 message(STATUS "     Bare-Metal Access to Apple's Neural Engine")
 message(STATUS "======================================================")
