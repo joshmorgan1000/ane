@@ -6256,21 +6256,16 @@ _stream_exec:
     cbz     w26, .L_rope_done
     ptrue   p0.s
     cntw    x9                     // SVLs = 16
-    // Save pointers on stack for reload after freq build
-    str     x8, [sp, #128]
-    str     x11, [sp, #136]
     // ── Compute ratio = theta^(2/dim) via scalar ln+exp ──
-    // ln(theta) = e*ln(2) + ln(m), where theta = 2^e * m, m in [1,2)
     fmov    s0, w24                // s0 = theta
     fmov    w4, s0                 // w4 = theta bits
     ubfx    w5, w4, #23, #8       // extract biased exponent
     sub     w5, w5, #127           // e = unbiased exponent
     scvtf   s1, w5                 // s1 = (float)e
-    movz    w6, #0x3F80, lsl #16   // 0x3F800000 = 1.0f
+    mov     w6, #127               // biased exponent for 1.0
     bfi     w4, w6, #23, #8       // set exponent to 127 → m in [1,2)
     fmov    s2, w4                 // s2 = m
     // ln(m) for m in [1,2): minimax cubic on t = m-1
-    //   ln(1+t) ≈ ((0.28947478*t - 0.49190896)*t + 0.99949556)*t
     fmov    s3, #1.0
     fsub    s2, s2, s3             // t = m - 1
     movz    w6, #0x3E94, lsl #16
@@ -6297,7 +6292,7 @@ _stream_exec:
     ucvtf   s7, w22                // (float)dim
     fdiv    s6, s6, s7             // 2/dim
     fmul    s6, s6, s1             // s6 = exponent_step
-    // exp(exponent_step) via degree-4 polynomial (same as softmax)
+    // exp(exponent_step) via degree-4 polynomial
     movz    w6, #0x3FB8, lsl #16
     movk    w6, #0xAA3B
     fmov    s10, w6                // log2(e)
@@ -6330,33 +6325,31 @@ _stream_exec:
     lsl     w6, w6, #23
     fmov    s14, w6                // 2^n as float bits
     fmul    s0, s15, s14           // s0 = ratio = theta^(2/dim)
-    // ── Build frequency table on stack at sp+160 ──
-    // freq[k] = (float)pos / ratio^k
-    ucvtf   s1, w23                // s1 = (float)pos
-    fmov    s2, #1.0               // s2 = power = ratio^0
+    // ── Build power vector [1, ratio, ratio^2, ..., ratio^(SVLs-1)] on stack ──
+    add     x14, sp, #128          // reuse param area (64 bytes, not needed for pointers)
+    fmov    s2, #1.0               // power = ratio^0
     mov     w12, #0
-    add     x14, sp, #160
-.L_rope_freq_build:
-    cmp     w12, w26
-    b.ge    .L_rope_freq_done
-    fdiv    s3, s1, s2             // freq[k] = pos / power
-    str     s3, [x14, w12, uxtw #2]
+.L_rope_pw:
+    cmp     w12, w9                // w9 = SVLs = 16
+    b.ge    .L_rope_pw_done
+    str     s2, [x14, w12, uxtw #2]
     fmul    s2, s2, s0             // power *= ratio
     add     w12, w12, #1
-    b       .L_rope_freq_build
-.L_rope_freq_done:
-    // ── Vectorized sin/cos rotation ──
-    ldr     x8, [sp, #128]        // reload input_ptr
-    ldr     x11, [sp, #136]       // reload output_ptr
-    // Load trig constants into z-registers
+    b       .L_rope_pw
+.L_rope_pw_done:
+    ld1w    {z29.s}, p0/z, [x14]  // z29 = [1, ratio, ratio^2, ..., ratio^15]
+    mov     z30.s, s2              // z30 = broadcast(ratio^SVLs) for chunk stepping
+    ucvtf   s3, w23               // s3 = (float)pos
+    mov     z31.s, s3              // z31 = broadcast(pos)
+    // ── Load trig constants ──
     movz    w4, #0x4049, lsl #16
     movk    w4, #0x0FDB
     fmov    s16, w4
-    mov     z20.s, s16             // 2*pi
-    movz    w4, #0x3E22, lsl #16
+    mov     z20.s, s16             // pi = 3.14159 = 0x40490FDB
+    movz    w4, #0x3EA2, lsl #16
     movk    w4, #0xF983
     fmov    s16, w4
-    mov     z21.s, s16             // 1/(2*pi)
+    mov     z21.s, s16             // 1/pi = 0x3EA2F983
     movz    w4, #0xBE2A, lsl #16
     movk    w4, #0xAAAB
     fmov    s16, w4
@@ -6365,6 +6358,10 @@ _stream_exec:
     movk    w4, #0x8889
     fmov    s16, w4
     mov     z23.s, s16             // 1/120
+    movz    w4, #0xB950, lsl #16
+    movk    w4, #0x0D01
+    fmov    s16, w4
+    mov     z27.s, s16             // -1/5040
     movz    w4, #0xBF00, lsl #16
     movk    w4, #0x0000
     fmov    s16, w4
@@ -6373,33 +6370,43 @@ _stream_exec:
     movk    w4, #0xAAAB
     fmov    s16, w4
     mov     z25.s, s16             // 1/24
+    movz    w4, #0xBAB6, lsl #16
+    movk    w4, #0x0B61
+    fmov    s16, w4
+    mov     z28.s, s16             // -1/720
     fmov    z26.s, #1.0
+    // ── Vectorized rotation loop ──
     mov     w12, #0                // pair index offset
     whilelt p1.s, w12, w26
 .L_rope_vec:
     b.none  .L_rope_done
-    // Load freq[k..k+SVLs-1]
-    ld1w    {z0.s}, p1/z, [x14, x12, lsl #2]
-    // Range reduce to [-pi, pi]: x = x - round(x/(2pi)) * 2pi
-    fmul    z1.s, z0.s, z21.s
-    frintn  z1.s, p0/m, z1.s
-    fmls    z0.s, p0/m, z1.s, z20.s
-    // x^2
-    fmul    z1.s, z0.s, z0.s      // z1 = x^2
-    // sin(x) = x * (1 + x^2*(-1/6 + x^2/120))
-    mov     z2.d, z23.d            // 1/120
-    fmul    z2.s, p0/m, z2.s, z1.s // x^2/120
-    fadd    z2.s, z2.s, z22.s     // x^2/120 - 1/6
-    fmul    z2.s, p0/m, z2.s, z1.s // x^2*(x^2/120 - 1/6)
-    fadd    z2.s, z2.s, z26.s     // 1 + x^2*(...)
-    fmul    z2.s, p0/m, z2.s, z0.s // sin(x)
-    // cos(x) = 1 + x^2*(-1/2 + x^2/24)
-    mov     z3.d, z25.d            // 1/24
-    fmul    z3.s, p0/m, z3.s, z1.s // x^2/24
-    fadd    z3.s, z3.s, z24.s     // x^2/24 - 1/2
-    fmul    z3.s, p0/m, z3.s, z1.s // x^2*(x^2/24 - 1/2)
-    fadd    z3.s, z3.s, z26.s     // cos(x)
-    // z2 = sin, z3 = cos
+    // Compute freq[k] = pos / power[k] via vector divide
+    movprfx z0, z31
+    fdiv    z0.s, p1/m, z0.s, z29.s // z0 = pos / power (only active lanes)
+    // Range reduce to [-pi/2, pi/2]: r = x - round(x/pi)*pi
+    fmul    z1.s, z0.s, z21.s     // x / pi
+    frintn  z1.s, p0/m, z1.s      // n = round(x/pi)
+    fcvtzs  z7.s, p0/m, z1.s      // n as integer (for parity check)
+    fmls    z0.s, p0/m, z1.s, z20.s // r = x - n*pi, in [-pi/2, pi/2]
+    // Sign flip mask: if n is odd, negate sin & cos
+    and     z7.s, z7.s, #1        // parity bit
+    lsl     z7.s, z7.s, #31       // 0x80000000 if odd, 0 if even
+    // r^2
+    fmul    z1.s, z0.s, z0.s      // z1 = r^2
+    // sin(r) via 7th-order Horner: r*(1 + r^2*(-1/6 + r^2*(1/120 + r^2*(-1/5040))))
+    mov     z2.d, z27.d            // z2 = -1/5040
+    fmad    z2.s, p0/m, z1.s, z23.s // z2 = z2*r^2 + 1/120
+    fmad    z2.s, p0/m, z1.s, z22.s // z2 = z2*r^2 + (-1/6)
+    fmad    z2.s, p0/m, z1.s, z26.s // z2 = z2*r^2 + 1
+    fmul    z2.s, p0/m, z2.s, z0.s  // z2 = z2*r = sin(r)
+    // cos(r) via 6th-order Horner: 1 + r^2*(-1/2 + r^2*(1/24 + r^2*(-1/720)))
+    mov     z3.d, z28.d            // z3 = -1/720
+    fmad    z3.s, p0/m, z1.s, z25.s // z3 = z3*r^2 + 1/24
+    fmad    z3.s, p0/m, z1.s, z24.s // z3 = z3*r^2 + (-1/2)
+    fmad    z3.s, p0/m, z1.s, z26.s // z3 = z3*r^2 + 1 = cos(r)
+    // Apply sign correction for odd n
+    eor     z2.d, z2.d, z7.d      // flip sin sign if n odd
+    eor     z3.d, z3.d, z7.d      // flip cos sign if n odd
     // LD2W deinterleaves: z4 = even (x[0],x[2],...), z5 = odd (x[1],x[3],...)
     ld2w    {z4.s, z5.s}, p1/z, [x8]
     // Rotation: out_even = in_even*cos - in_odd*sin
@@ -6411,9 +6418,11 @@ _stream_exec:
     fmla    z5.s, p0/m, z6.s, z2.s // + in_even * sin
     // ST2W reinterleaves pairs
     st2w    {z4.s, z5.s}, p1, [x11]
-    // Advance: each chunk = SVLs pairs = 2*SVLs floats
+    // Advance pointers: each chunk = SVLs pairs = 2*SVLs floats
     add     x8, x8, x9, lsl #3    // input += SVLs * 8
     add     x11, x11, x9, lsl #3  // output += SVLs * 8
+    // Advance power vector: multiply by ratio^SVLs for next chunk
+    fmul    z29.s, p0/m, z29.s, z30.s
     add     w12, w12, w9
     whilelt p1.s, w12, w26
     b       .L_rope_vec
