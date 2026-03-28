@@ -134,7 +134,44 @@ enum class Op : uint8_t {
     softmax_fp32                 = 0x56,  ///< Standalone softmax: out = softmax(in), [dim:u32][in:u64][out:u64]
     q8_0_gemv                    = 0x57,  ///< Q8_0 quantized GEMV: out = dequant(W_q8) * input, [M:u32][K:u32][in:u64][W:u64][out:u64]
     q4_0_gemv                    = 0x58,  ///< Q4_0 quantized GEMV: out = dequant(W_q4) * input, [M:u32][K:u32][in:u64][W:u64][out:u64]
-    NUM_OPCODES                  = 0x59,
+    fdot_zreg                    = 0x59,  ///< Dot product: z0 = broadcast(dot(a, b)), [width:u8] w1: z0·z1, w2: z0:z1·z2:z3, w4: z0:z3·z4:z7
+    fmla_wide_zreg               = 0x5A,  ///< Wide FMA accumulate into z0, [width:u8] w1: z0+=z1*z2, w2: z0+=z1*z3+z2*z4, w4: z0+=z1*z5+...+z4*z8
+    fadd_wide_zreg               = 0x5B,  ///< Wide ADD: [width:u8][dst:u8][s1:u8][s2:u8] dst..dst+w-1 = s1..s1+w-1 + s2..s2+w-1
+    fsub_wide_zreg               = 0x5C,  ///< Wide SUB: same encoding as fadd_wide
+    fmul_wide_zreg               = 0x5D,  ///< Wide MUL: same encoding as fadd_wide
+    load_wide_param              = 0x5E,  ///< Wide load from param: [width:u8][param_idx:u8] loads width z-regs into z0..z(w-1), advances param
+    store_wide_param             = 0x5F,  ///< Wide store to param: [width:u8][param_idx:u8] stores z0..z(w-1) to param, advances param
+    cblas_bfgemm                 = 0x60,  ///< C = alpha*op(A_bf16)*op(B_bf16) + beta*C, BFMOPA widening GEMM
+    cblas_igemm                  = 0x61,  ///< C = alpha*scvtf(A_i8 @ B_i8) + beta*C, SMOPA signed integer GEMM
+    cblas_ugemm                  = 0x62,  ///< C = alpha*ucvtf(A_u8 @ B_u8) + beta*C, UMOPA unsigned integer GEMM
+    cblas_usgemm                 = 0x63,  ///< C = alpha*scvtf(A_u8 @ B_i8) + beta*C, USMOPA mixed-sign GEMM
+    gemm_tile_fp32               = 0x64,  ///< Tile-range FMOPA GEMM: compute output tiles [ti_start..ti_end, tj_start..tj_end]
+    softmax_partial_fp32         = 0x65,  ///< Partial softmax: out=exp(in-max), returns (max, sum_exp) for cross-shard merging
+    softmax_correct_fp32         = 0x66,  ///< Softmax correction: out *= exp(local_max - global_max), updates partial sum
+    reduce_sum_sq_fp32           = 0x67,  ///< Partial sum of squares: result = sum(x[i]^2), for decomposed RMS norm
+    reduce_col_sum_fp32          = 0x68,  ///< Column-wise sum: dst[j] = sum(src[i][j]) for i in 0..M-1, for bias gradients
+    silu_backward_fp32           = 0x69,  ///< SiLU backward: dx = dy * sigmoid(x) * (1 + x*(1-sigmoid(x)))
+    softmax_backward_fp32        = 0x6A,  ///< Softmax backward: dx = s*(dy - sum(s*dy))
+    gelu_fp32                    = 0x6B,  ///< GeLU: 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715*x^3)))
+    layer_norm_fp32              = 0x6C,  ///< Layer norm: (x-mean)/sqrt(var+eps)*gamma+beta
+    causal_mask_fp32             = 0x6D,  ///< Causal mask: set scores[i][j] = -inf where j > i
+    adam_step_fp32               = 0x6E,  ///< Fused Adam optimizer step over params/grads/m/v arrays
+    gelu_backward_fp32           = 0x6F,  ///< GeLU backward: dx = dy * gelu'(x)
+    rms_norm_backward_fp32       = 0x70,  ///< RMS norm backward: dx and dw gradients
+    layer_norm_backward_fp32     = 0x71,  ///< Layer norm backward: dx, dgamma, dbeta gradients
+    rope_backward_fp32           = 0x72,  ///< RoPE backward: inverse rotation (sin negated)
+    cross_entropy_fp32           = 0x73,  ///< Cross-entropy loss + gradient: loss scalar + d_logits
+    elementwise_sub_fp32         = 0x74,  ///< out[i] = a[i] - b[i]
+    q4_k_gemv                    = 0x75,  ///< Q4_K quantized GEMV: super-blocks of 256, 4-bit quants + 6-bit scales
+    q2_k_gemv                    = 0x76,  ///< Q2_K quantized GEMV: super-blocks of 256, 2-bit quants + 4-bit scales
+    q3_k_gemv                    = 0x77,  ///< Q3_K quantized GEMV: super-blocks of 256, 3-bit quants (2+1 bit planes)
+    q5_k_gemv                    = 0x78,  ///< Q5_K quantized GEMV: super-blocks of 256, 5-bit quants (4+1 bit planes)
+    q6_k_gemv                    = 0x79,  ///< Q6_K quantized GEMV: super-blocks of 256, 6-bit quants (4+2 bit planes)
+    flash_attention_fp32         = 0x7A,  ///< Fused flash attention: Q@K^T→scale→mask→softmax→@V, tiled online softmax
+    get_rows_fp32                = 0x7B,  ///< Embedding lookup: gather rows by index from fp32 table
+    get_rows_q8_0                = 0x7C,  ///< Embedding lookup + dequant from Q8_0 table
+    get_rows_q4_0                = 0x7D,  ///< Embedding lookup + dequant from Q4_0 table
+    NUM_OPCODES                  = 0x7E,
 };
 /** --------------------------------------------------------------------------------------------------------- IsZVector / IsZStream helpers
  * @brief Type trait helpers to detect z_vector<T> and z_stream<T> without requiring T::value_type
@@ -208,6 +245,15 @@ public:
         (append(args), ...);
         return *this;
     }
+    /** --------------------------------------------------------------------------------------------- Emit Raw Bytes
+     * @brief Appends raw bytes to the bytecode buffer. Used by the DSL compiler for intrinsic
+     * function calls where argument types are determined at parse time.
+     */
+    void emit_raw(const void* data, size_t len) {
+        const auto* p = reinterpret_cast<const uint8_t*>(data);
+        bytecodes_.insert(bytecodes_.end(), p, p + len);
+    }
+    void emit_raw_u8(uint8_t val) { bytecodes_.push_back(val); }
     /** --------------------------------------------------------------------------------------------- Mark
      * @brief Returns the current bytecode offset, for use as a loop target or jump reference.
      * @return Current offset in bytes from the start of the program
@@ -266,6 +312,9 @@ public:
     void patch_u32(size_t offset, uint32_t value) {
         std::memcpy(&bytecodes_[offset], &value, sizeof(value));
     }
+    void patch_u64(size_t offset, uint64_t value) {
+        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
+    }
     /** --------------------------------------------------------------------------------------------- Append
      * @brief Appends another program's bytecodes to this one.
      * @param other The program whose bytecodes to append
@@ -321,12 +370,23 @@ public:
  *   s.exec({src_a_ptr, src_b_ptr, dst_ptr});
  * @endcode
  */
+/** --------------------------------------------------------------------------------------------------------- PtrPatch
+ * @struct PtrPatch
+ * @brief Records a bytecode offset where a params[N] pointer placeholder needs to be patched
+ * with the actual pointer value at exec() time. Used by DSL intrinsic function calls that emit
+ * opcodes with inline pointer arguments (e.g., cblas_sgemm, softmax_partial_fp32).
+ */
+struct PtrPatch {
+    size_t bytecode_offset;  ///< Offset within compiled bytecodes where the u64 placeholder sits
+    uint8_t param_idx;       ///< Which params[N] to fill in (0-7)
+};
 class script {
 public:
     std::string source;      ///< DSL source text
 private:
     program compiled_;        ///< Compiled bytecodes (without set_param preamble)
-    bool compiled_valid_ = false;  ///< Whether compiled_ is up to date
+    std::vector<PtrPatch> patches_;  ///< Pointer fixups for intrinsic function calls
+    bool compiled_valid_ = false;    ///< Whether compiled_ is up to date
 public:
     script(const char* src);
     script(const std::string& src);

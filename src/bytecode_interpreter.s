@@ -1,56 +1,64 @@
+//----------------------------------------------------------------------------------------------------------- Bytecode Interpreter
+// @file   bytecode_interpreter.s
+// @brief  Handwritten AArch64 assembly for the bytecode interpreter's main dispatch loop and opcode handlers.
+//         This keeps the stream mode active for up to 255 loops.
+//
+// Copyright (c) 2024 Josh Morgan. All rights reserved.
+// Released under the MIT License
+//
 .text
 .p2align 4
 .global _stream_exec
 _stream_exec:
-    stp     x29, x30, [sp, #-192]!
-    mov     x29, sp
-    stp     x19, x20, [sp, #16]
-    stp     x21, x22, [sp, #32]
-    stp     x23, x24, [sp, #48]
-    stp     x25, x26, [sp, #64]
-    stp     d8,  d9,  [sp, #80]
-    stp     d10, d11, [sp, #96]
-    stp     d12, d13, [sp, #112]
+    stp     x29, x30, [sp, #-192]!   // prologue: save callee-saved registers and make room on stack
+    mov     x29, sp                  // set frame pointer (not strictly needed, but can help with debugging)
+    stp     x19, x20, [sp, #16]      // save x19-x26 and d8-d13, which we use for general-purpose storage across opcode handlers
+    stp     x21, x22, [sp, #32]      // These registers are not preserved across opcode handlers, but we save/restore them around the entire dispatch loop to avoid clobbering the caller's values.
+    stp     x23, x24, [sp, #48]      // (x19-x26 are callee-saved, so we must preserve them across the entire call to _stream_exec)
+    stp     x25, x26, [sp, #64]      // d8-d13 are also callee-saved, so we save/restore them around the entire dispatch loop as well
+    stp     d8,  d9,  [sp, #80]      // (if opcode handlers want to use these registers, they can spill them to the stack or use other callee-saved registers as scratch)
+    stp     d10, d11, [sp, #96]     
+    stp     d12, d13, [sp, #112]   
     // ── x0 = data, x1 = size ──
     mov     x19, x0                // instruction pointer
     add     x21, x0, x1            // end = data + size
     // ── Enter streaming mode ──
     smstart
     // ── Load jump table base (must be after smstart, adrp is fine in streaming) ──
-    adrp    x25, .L_jump_table@PAGE
-    add     x25, x25, .L_jump_table@PAGEOFF
+    adrp    x25, .L_jump_table@PAGE             // load page address of jump table
+    add     x25, x25, .L_jump_table@PAGEOFF     // add page offset to get full address of jump table
     // ── Dispatch ──
 .L_dispatch:
-    cmp     x19, x21               // IP >= bytecodes end?
+    cmp     x19, x21                 // IP >= bytecodes end?
     b.hs    .L_exit                  // done — no explicit halt needed
-    ldrb    w9, [x19], #1          // fetch opcode, advance IP
-    ldrsw   x10, [x25, x9, lsl #2] // load relative offset (32-bit signed)
-    add     x10, x25, x10          // absolute target = table_base + offset
-    br      x10
+    ldrb    w9, [x19], #1            // fetch opcode, advance IP
+    ldrsw   x10, [x25, x9, lsl #2]   // load relative offset (32-bit signed)
+    add     x10, x25, x10            // absolute target = table_base + offset
+    br      x10                      // jump to opcode handler 
 // ================================================================
 // Jump Table (PC-relative offsets, avoids text relocations on macOS)
 // ================================================================
 .p2align 2
 .L_jump_table:
-    .long   .L_exit          - .L_jump_table  // 0x00 reserved (exit)
-    .long   .L_op_zero_za    - .L_jump_table  // 0x01 zero_za
-    .long   .L_op_acc_smopa  - .L_jump_table  // 0x02 acc_smopa
-    .long   .L_op_acc_umopa  - .L_jump_table  // 0x03 acc_umopa
-    .long   .L_op_acc_usmopa - .L_jump_table  // 0x04 acc_usmopa
-    .long   .L_op_acc_sumopa - .L_jump_table  // 0x05 acc_sumopa
-    .long   .L_op_store_tiles - .L_jump_table // 0x06 store_tiles
-    .long   .L_op_smopa_2x2  - .L_jump_table // 0x07 smopa_2x2
-    .long   .L_op_umopa_2x2  - .L_jump_table // 0x08 umopa_2x2
-    .long   .L_op_usmopa_2x2 - .L_jump_table // 0x09 usmopa_2x2
-    .long   .L_op_load_bias  - .L_jump_table  // 0x0A load_bias
-    .long   .L_op_scale_store - .L_jump_table // 0x0B scale_store
-    .long   .L_op_elementwise_add_fp32  - .L_jump_table // 0x0C elementwise_add_fp32
+    .long   .L_exit          - .L_jump_table   // 0x00 reserved (exit)
+    .long   .L_op_zero_za    - .L_jump_table   // 0x01 zero_za
+    .long   .L_op_acc_smopa  - .L_jump_table   // 0x02 acc_smopa
+    .long   .L_op_acc_umopa  - .L_jump_table   // 0x03 acc_umopa
+    .long   .L_op_acc_usmopa - .L_jump_table   // 0x04 acc_usmopa
+    .long   .L_op_acc_sumopa - .L_jump_table   // 0x05 acc_sumopa
+    .long   .L_op_store_tiles - .L_jump_table  // 0x06 store_tiles
+    .long   .L_op_smopa_2x2  - .L_jump_table   // 0x07 smopa_2x2
+    .long   .L_op_umopa_2x2  - .L_jump_table   // 0x08 umopa_2x2
+    .long   .L_op_usmopa_2x2 - .L_jump_table   // 0x09 usmopa_2x2
+    .long   .L_op_load_bias  - .L_jump_table   // 0x0A load_bias
+    .long   .L_op_scale_store - .L_jump_table  // 0x0B scale_store
+    .long   .L_op_elementwise_add_fp32  - .L_jump_table       // 0x0C elementwise_add_fp32
     .long   .L_op_elementwise_scaled_add_fp32 - .L_jump_table // 0x0D elementwise_scaled_add_fp32
-    .long   .L_op_elementwise_mul_fp32 - .L_jump_table // 0x0E elementwise_mul_fp32
-    .long   .L_op_relu_backward_fp32 - .L_jump_table // 0x0F relu_backward_fp32
-    .long   .L_op_scatter_tile_fp32 - .L_jump_table // 0x10 scatter_tile_fp32
-    .long   .L_op_transpose_fp32 - .L_jump_table // 0x11 transpose_fp32
-    .long   .L_op_softmax_argmax_fp32 - .L_jump_table // 0x12 softmax_argmax_fp32
+    .long   .L_op_elementwise_mul_fp32 - .L_jump_table        // 0x0E elementwise_mul_fp32
+    .long   .L_op_relu_backward_fp32 - .L_jump_table    // 0x0F relu_backward_fp32
+    .long   .L_op_scatter_tile_fp32 - .L_jump_table     // 0x10 scatter_tile_fp32
+    .long   .L_op_transpose_fp32 - .L_jump_table        // 0x11 transpose_fp32
+    .long   .L_op_softmax_argmax_fp32 - .L_jump_table   // 0x12 softmax_argmax_fp32
     .long   .L_op_luti4 - .L_jump_table      // 0x13 luti4_op
     .long   .L_op_luti2 - .L_jump_table      // 0x14 luti2_op
     .long   .L_op_dense_fp32 - .L_jump_table  // 0x15 dense_fp32
@@ -121,6 +129,43 @@ _stream_exec:
     .long   .L_op_softmax_fp32 - .L_jump_table // 0x56 softmax_fp32
     .long   .L_op_q8_0_gemv - .L_jump_table   // 0x57 q8_0_gemv
     .long   .L_op_q4_0_gemv - .L_jump_table   // 0x58 q4_0_gemv
+    .long   .L_op_fdot_zreg - .L_jump_table   // 0x59 fdot_zreg
+    .long   .L_op_fmla_wide - .L_jump_table   // 0x5A fmla_wide_zreg
+    .long   .L_op_fadd_wide - .L_jump_table   // 0x5B fadd_wide_zreg
+    .long   .L_op_fsub_wide - .L_jump_table   // 0x5C fsub_wide_zreg
+    .long   .L_op_fmul_wide - .L_jump_table   // 0x5D fmul_wide_zreg
+    .long   .L_op_load_wide_param - .L_jump_table  // 0x5E load_wide_param
+    .long   .L_op_store_wide_param - .L_jump_table // 0x5F store_wide_param
+    .long   .L_op_cblas_bfgemm - .L_jump_table    // 0x60 cblas_bfgemm
+    .long   .L_op_cblas_igemm - .L_jump_table     // 0x61 cblas_igemm
+    .long   .L_op_cblas_ugemm - .L_jump_table     // 0x62 cblas_ugemm
+    .long   .L_op_cblas_usgemm - .L_jump_table    // 0x63 cblas_usgemm
+    .long   .L_op_gemm_tile_fp32 - .L_jump_table  // 0x64 gemm_tile_fp32
+    .long   .L_op_softmax_partial_fp32 - .L_jump_table // 0x65 softmax_partial_fp32
+    .long   .L_op_softmax_correct_fp32 - .L_jump_table // 0x66 softmax_correct_fp32
+    .long   .L_op_reduce_sum_sq_fp32 - .L_jump_table   // 0x67 reduce_sum_sq_fp32
+    .long   .L_op_reduce_col_sum_fp32 - .L_jump_table // 0x68 reduce_col_sum_fp32
+    .long   .L_op_silu_backward_fp32 - .L_jump_table  // 0x69 silu_backward_fp32
+    .long   .L_op_softmax_backward_fp32 - .L_jump_table // 0x6A softmax_backward_fp32
+    .long   .L_op_gelu_fp32 - .L_jump_table            // 0x6B gelu_fp32
+    .long   .L_op_layer_norm_fp32 - .L_jump_table      // 0x6C layer_norm_fp32
+    .long   .L_op_causal_mask_fp32 - .L_jump_table     // 0x6D causal_mask_fp32
+    .long   .L_op_adam_step_fp32 - .L_jump_table       // 0x6E adam_step_fp32
+    .long   .L_op_gelu_backward_fp32 - .L_jump_table  // 0x6F gelu_backward_fp32
+    .long   .L_op_rms_norm_backward_fp32 - .L_jump_table // 0x70 rms_norm_backward_fp32
+    .long   .L_op_layer_norm_backward_fp32 - .L_jump_table // 0x71 layer_norm_backward_fp32
+    .long   .L_op_rope_backward_fp32 - .L_jump_table  // 0x72 rope_backward_fp32
+    .long   .L_op_cross_entropy_fp32 - .L_jump_table  // 0x73 cross_entropy_fp32
+    .long   .L_op_elementwise_sub_fp32 - .L_jump_table // 0x74 elementwise_sub_fp32
+    .long   .L_op_q4_k_gemv - .L_jump_table           // 0x75 q4_k_gemv
+    .long   .L_op_q2_k_gemv - .L_jump_table           // 0x76 q2_k_gemv
+    .long   .L_op_q3_k_gemv - .L_jump_table           // 0x77 q3_k_gemv
+    .long   .L_op_q5_k_gemv - .L_jump_table           // 0x78 q5_k_gemv
+    .long   .L_op_q6_k_gemv - .L_jump_table           // 0x79 q6_k_gemv
+    .long   .L_op_flash_attention_fp32 - .L_jump_table // 0x7A flash_attention_fp32
+    .long   .L_op_get_rows_fp32 - .L_jump_table       // 0x7B get_rows_fp32
+    .long   .L_op_get_rows_q8_0 - .L_jump_table       // 0x7C get_rows_q8_0
+    .long   .L_op_get_rows_q4_0 - .L_jump_table       // 0x7D get_rows_q4_0
 // ================================================================
 // EXIT — reached end of bytecodes
 // ================================================================
@@ -6249,17 +6294,17 @@ _stream_exec:
     ldr     w22, [x19]             // dim (number of floats, must be even)
     ldr     w23, [x19, #4]         // pos (token position)
     ldr     w24, [x19, #8]         // theta bits (f32)
-    add     x19, x19, #12
-    ldr     x8, [x19], #8         // input_ptr
-    ldr     x11, [x19], #8        // output_ptr
+    add     x19, x19, #12          // advance IP past first 3 operands
+    ldr     x8, [x19], #8          // input_ptr
+    ldr     x11, [x19], #8         // output_ptr
     lsr     w26, w22, #1           // dim_pairs = dim / 2
-    cbz     w26, .L_rope_done
-    ptrue   p0.s
+    cbz     w26, .L_rope_done      // early exit if no pairs
+    ptrue   p0.s                   // predicate for full vectors
     cntw    x9                     // SVLs = 16
     // ── Compute ratio = theta^(2/dim) via scalar ln+exp ──
     fmov    s0, w24                // s0 = theta
     fmov    w4, s0                 // w4 = theta bits
-    ubfx    w5, w4, #23, #8       // extract biased exponent
+    ubfx    w5, w4, #23, #8        // extract biased exponent
     sub     w5, w5, #127           // e = unbiased exponent
     scvtf   s1, w5                 // s1 = (float)e
     mov     w6, #127               // biased exponent for 1.0
@@ -6658,3 +6703,5346 @@ _stream_exec:
     str     s4, [x13], #4         // store output[m], advance output ptr
     sub     w22, w22, #1
     b       .L_q4_gemv_row
+// ================================================================
+// FDOT_ZREG (0x59)
+// Dot product with 1/2/4-wide jump points.
+// Bytecode: [0x59][width:u8]
+//   width=1: z0 = broadcast(dot(z0, z1))         — 16 products → scalar
+//   width=2: z0 = broadcast(dot(z0:z1, z2:z3))   — 32 products → scalar
+//   width=4: z0 = broadcast(dot(z0:z3, z4:z7))   — 64 products → scalar
+// ================================================================
+.L_op_fdot_zreg:
+    ldrb    w22, [x19], #1         // width (1, 2, or 4)
+    ptrue   p0.s
+    cmp     w22, #4
+    b.eq    .L_fdot_4
+    cmp     w22, #2
+    b.eq    .L_fdot_2
+    // ── Width 1: dot(z0, z1) → z0 ──
+.L_fdot_1:
+    fmul    z0.s, z0.s, z1.s      // z0[i] *= z1[i]
+    faddv   s0, p0, z0.s          // s0 = horizontal sum
+    mov     z0.s, s0               // broadcast scalar to all lanes
+    b       .L_dispatch
+    // ── Width 2: dot(z0:z1, z2:z3) → z0 ──
+.L_fdot_2:
+    fmul    z0.s, z0.s, z2.s      // pair 0: z0[i] *= z2[i]
+    fmla    z0.s, p0/m, z1.s, z3.s // pair 1: z0[i] += z1[i]*z3[i]
+    faddv   s0, p0, z0.s          // horizontal sum of 32 products
+    mov     z0.s, s0               // broadcast
+    b       .L_dispatch
+    // ── Width 4: dot(z0:z3, z4:z7) → z0 ──
+.L_fdot_4:
+    fmul    z0.s, z0.s, z4.s      // pair 0
+    fmla    z0.s, p0/m, z1.s, z5.s // pair 1
+    fmla    z0.s, p0/m, z2.s, z6.s // pair 2
+    fmla    z0.s, p0/m, z3.s, z7.s // pair 3
+    faddv   s0, p0, z0.s          // horizontal sum of 64 products
+    mov     z0.s, s0               // broadcast
+    b       .L_dispatch
+// ================================================================
+// FMLA_WIDE_ZREG (0x5A)
+// Wide fused multiply-accumulate: multiple products into z0 accumulator.
+// Bytecode: [0x5A][width:u8]
+//   width=1: z0 += z1 * z2
+//   width=2: z0 += z1*z3 + z2*z4           (a=z1:z2, b=z3:z4)
+//   width=4: z0 += z1*z5 + z2*z6 + z3*z7 + z4*z8  (a=z1:z4, b=z5:z8)
+// All implicit fixed registers. User arranges via mov_zreg.
+// ================================================================
+.L_op_fmla_wide:
+    ldrb    w22, [x19], #1         // width (1, 2, or 4)
+    ptrue   p0.s
+    cmp     w22, #4
+    b.eq    .L_fmla_w4
+    cmp     w22, #2
+    b.eq    .L_fmla_w2
+    // ── Width 1: z0 += z1 * z2 ──
+    fmla    z0.s, p0/m, z1.s, z2.s
+    b       .L_dispatch
+    // ── Width 2: z0 += z1*z3 + z2*z4 ──
+.L_fmla_w2:
+    fmla    z0.s, p0/m, z1.s, z3.s
+    fmla    z0.s, p0/m, z2.s, z4.s
+    b       .L_dispatch
+    // ── Width 4: z0 += z1*z5 + z2*z6 + z3*z7 + z4*z8 ──
+.L_fmla_w4:
+    fmla    z0.s, p0/m, z1.s, z5.s
+    fmla    z0.s, p0/m, z2.s, z6.s
+    fmla    z0.s, p0/m, z3.s, z7.s
+    fmla    z0.s, p0/m, z4.s, z8.s
+    b       .L_dispatch
+// ================================================================
+// WIDE ARITHMETIC (0x5B-0x5D)
+// fadd_wide / fsub_wide / fmul_wide
+// Bytecode: [op][width:u8][dst:u8][src1:u8][src2:u8]
+//   width=1: z[dst] = z[src1] op z[src2]
+//   width=2: z[dst+i] = z[src1+i] op z[src2+i] for i=0..1
+//   width=4: z[dst+i] = z[src1+i] op z[src2+i] for i=0..3
+// Each entry point sets w24 = op selector then falls into shared loop.
+// ================================================================
+.L_op_fadd_wide:
+    mov     w24, #0
+    b       .L_wide_arith
+.L_op_fsub_wide:
+    mov     w24, #1
+    b       .L_wide_arith
+.L_op_fmul_wide:
+    mov     w24, #2
+.L_wide_arith:
+    ldrb    w3, [x19], #1          // width (1, 2, or 4) — w25/x25 holds jump table, DO NOT clobber
+    ldrb    w22, [x19], #1         // dst base index
+    ldrb    w10, [x19], #1         // src1 base index
+    ldrb    w23, [x19], #1         // src2 base index
+    ptrue   p0.s
+    addvl   sp, sp, #-1            // scratch slot
+    mov     w12, #0                // iteration counter
+.L_wide_arith_loop:
+    cmp     w12, w3
+    b.ge    .L_wide_arith_done
+    add     w9, w10, w12
+    adr     x26, .L_waz_1
+    b       .L_tramp_store         // z[src1+i] → stack
+.L_waz_1:
+    ldr     z0, [sp]               // z0 = z[src1+i]
+    add     w9, w23, w12
+    adr     x26, .L_waz_2
+    b       .L_tramp_store         // z[src2+i] → stack
+.L_waz_2:
+    ldr     z1, [sp]               // z1 = z[src2+i]
+    cbz     w24, .L_waz_add
+    cmp     w24, #1
+    b.eq    .L_waz_sub
+    fmul    z0.s, z0.s, z1.s
+    b       .L_waz_store
+.L_waz_add:
+    fadd    z0.s, z0.s, z1.s
+    b       .L_waz_store
+.L_waz_sub:
+    fsub    z0.s, z0.s, z1.s
+.L_waz_store:
+    str     z0, [sp]               // result → scratch
+    add     w9, w22, w12           // dst+i
+    adr     x26, .L_waz_3
+    b       .L_tramp_load          // scratch → z[dst+i]
+.L_waz_3:
+    add     w12, w12, #1
+    b       .L_wide_arith_loop
+.L_wide_arith_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// LOAD_WIDE_PARAM (0x5E)
+// Multi-vector contiguous load from param pointer directly into
+// destination registers. Uses SME2 ld1w multi-vector form for
+// width=2 (128 bytes) and width=4 (256 bytes). Advances param.
+//
+// Bytecode: [0x5E][width:u8][param_idx:u8][dst_base:u8]
+//   dst_base must be aligned: width=2 → even, width=4 → multiple of 4
+//
+// width=1: ld1w into z[dst], advance param by 64
+// width=2: ld1w {z[dst]:z[dst+1]}, advance param by 128
+// width=4: ld1w {z[dst]:z[dst+3]}, advance param by 256
+// ================================================================
+.L_op_load_wide_param:
+    ldrb    w22, [x19], #1         // width
+    ldrb    w23, [x19], #1         // param index
+    ldrb    w24, [x19], #1         // dst base register
+    add     x4, sp, #128
+    ldr     x8, [x4, w23, uxtw #3]
+    ptrue   p0.s
+    ptrue   pn8.s
+    cmp     w22, #4
+    b.eq    .L_lwp_4
+    cmp     w22, #2
+    b.eq    .L_lwp_2
+    // ── Width 1: single ld1w + trampoline ──
+    ld1w    {z0.s}, p0/z, [x8]
+    addvl   sp, sp, #-1
+    str     z0, [sp]
+    mov     w9, w24
+    adr     x26, .L_lwp_1_done
+    b       .L_tramp_load
+.L_lwp_1_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+    // ── Width 2: branch table for dst pairs ──
+.L_lwp_2:
+    adr     x5, .L_lwp2_table
+    add     x5, x5, x24, lsl #2   // dst/2 * 8 bytes per entry (2 insns)
+    br      x5
+.L_lwp2_table:
+    ld1w    {z0.s, z1.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z2.s, z3.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z4.s, z5.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z6.s, z7.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z8.s, z9.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z10.s, z11.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z12.s, z13.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z14.s, z15.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z16.s, z17.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z18.s, z19.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z20.s, z21.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z22.s, z23.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z24.s, z25.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z26.s, z27.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z28.s, z29.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+    ld1w    {z30.s, z31.s}, pn8/z, [x8]
+    b       .L_lwp_2_done
+.L_lwp_2_done:
+    b       .L_dispatch
+    // ── Width 4: branch table for dst quads ──
+.L_lwp_4:
+    adr     x5, .L_lwp4_table
+    add     x5, x5, x24, lsl #1   // dst/4 * 8 bytes per entry (2 insns)
+    br      x5
+.L_lwp4_table:
+    ld1w    {z0.s - z3.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z4.s - z7.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z8.s - z11.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z12.s - z15.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z16.s - z19.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z20.s - z23.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z24.s - z27.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+    ld1w    {z28.s - z31.s}, pn8/z, [x8]
+    b       .L_lwp_4_done
+.L_lwp_4_done:
+    b       .L_dispatch
+// ================================================================
+// STORE_WIDE_PARAM (0x5F)
+// Multi-vector contiguous store — mirrors load_wide_param.
+// Bytecode: [0x5F][width:u8][param_idx:u8][src_base:u8]
+// ================================================================
+.L_op_store_wide_param:
+    ldrb    w22, [x19], #1         // width
+    ldrb    w23, [x19], #1         // param index
+    ldrb    w24, [x19], #1         // src base register
+    add     x4, sp, #128
+    ldr     x11, [x4, w23, uxtw #3]
+    ptrue   p0.s
+    ptrue   pn8.s
+    cmp     w22, #4
+    b.eq    .L_swp_4
+    cmp     w22, #2
+    b.eq    .L_swp_2
+    // ── Width 1: trampoline store ──
+    addvl   sp, sp, #-1
+    mov     w9, w24
+    adr     x26, .L_swp_1_done
+    b       .L_tramp_store
+.L_swp_1_done:
+    ldr     z0, [sp]
+    st1w    {z0.s}, p0, [x11]
+    addvl   sp, sp, #1
+    b       .L_dispatch
+    // ── Width 2: branch table ──
+.L_swp_2:
+    adr     x5, .L_swp2_table
+    add     x5, x5, x24, lsl #2
+    br      x5
+.L_swp2_table:
+    st1w    {z0.s, z1.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z2.s, z3.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z4.s, z5.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z6.s, z7.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z8.s, z9.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z10.s, z11.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z12.s, z13.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z14.s, z15.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z16.s, z17.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z18.s, z19.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z20.s, z21.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z22.s, z23.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z24.s, z25.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z26.s, z27.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z28.s, z29.s}, pn8, [x11]
+    b       .L_swp_2_done
+    st1w    {z30.s, z31.s}, pn8, [x11]
+    b       .L_swp_2_done
+.L_swp_2_done:
+    b       .L_dispatch
+    // ── Width 4: branch table ──
+.L_swp_4:
+    adr     x5, .L_swp4_table
+    add     x5, x5, x24, lsl #1
+    br      x5
+.L_swp4_table:
+    st1w    {z0.s - z3.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z4.s - z7.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z8.s - z11.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z12.s - z15.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z16.s - z19.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z20.s - z23.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z24.s - z27.s}, pn8, [x11]
+    b       .L_swp_4_done
+    st1w    {z28.s - z31.s}, pn8, [x11]
+    b       .L_swp_4_done
+.L_swp_4_done:
+    b       .L_dispatch
+// ================================================================
+// CBLAS_BFGEMM (0x60) -- C = alpha*op(A_bf16)*op(B_bf16) + beta*C
+//
+// Encoding: [0x60][flags:u8][M:u32][N:u32][K:u32]
+//           [lda:u32][ldb:u32][ldc:u32]
+//           [alpha:f32][beta:f32]
+//           [A_ptr:u64][B_ptr:u64][C_ptr:u64]
+//
+// flags bit 0: transA (0=normal, 1=transpose)
+// flags bit 1: transB (0=normal, 1=transpose)
+// A, B are bf16; C is fp32. lda/ldb in bf16 elements, ldc in fp32 elements.
+// K must be a multiple of 32 (bf16 elements).
+// Total immediate payload after opcode: 57 bytes
+//
+// Tile geometry: 16 x 32 output (za0 = left 16 cols, za1 = right 16 cols)
+// za2 = scratch for A tile, za3 = scratch for transB
+// BFMOPA 2:1 widening: each instruction processes 2 K-elements per output position
+//
+// Stack layout (128 bytes): identical to cblas_sgemm
+//   [sp+0]:   A_ptr           [sp+8]:   B_ptr
+//   [sp+16]:  C_ptr           [sp+24]:  M (w)     [sp+28]: N (w)
+//   [sp+32]:  K (w)           [sp+36]:  lda (w)   [sp+40]: ldb (w)
+//   [sp+44]:  ldc (w)         [sp+48]:  flags (w)
+//   [sp+52]:  k_blocks (w)    [sp+56]:  M_pad (w) [sp+60]: N_pad (w)
+//   [sp+64]:  A_tile_base (x) [sp+72]:  lda*2 (x)
+//   [sp+80]:  ti (w)          [sp+84]:  tj (w)
+//   [sp+88]:  ldb*2 (x)       [sp+96]:  ldc*4 (x)
+//   [sp+104]: beta_bits (w)   [sp+112]: B_col_stride (x)
+// z20 = alpha broadcast, z22 = beta broadcast
+// ================================================================
+.L_op_cblas_bfgemm:
+    // ── Parse bytecodes ──
+    ldrb    w18, [x19], #1             // flags
+    ldr     w0, [x19]                  // M
+    ldr     w1, [x19, #4]             // N
+    ldr     w2, [x19, #8]             // K
+    ldr     w3, [x19, #12]            // lda
+    ldr     w4, [x19, #16]            // ldb
+    ldr     w5, [x19, #20]            // ldc
+    ldr     s20, [x19, #24]           // alpha (f32)
+    ldr     s22, [x19, #28]           // beta (f32)
+    add     x19, x19, #32
+    ldr     x6, [x19], #8             // A_ptr
+    ldr     x7, [x19], #8             // B_ptr
+    ldr     x8, [x19], #8             // C_ptr
+    // ── Allocate stack frame ──
+    sub     sp, sp, #128
+    stp     x6, x7, [sp, #0]          // [0] A, [8] B
+    str     x8, [sp, #16]             // [16] C
+    stp     w0, w1, [sp, #24]         // [24] M, [28] N
+    str     w2, [sp, #32]             // [32] K
+    stp     w3, w4, [sp, #36]         // [36] lda, [40] ldb
+    stp     w5, w18, [sp, #44]        // [44] ldc, [48] flags
+    // ── Derived values ──
+    ptrue   p0.s
+    cntw    x9                         // SVLs = 16
+    lsr     w15, w2, #5               // k_blocks = K / 32
+    str     w15, [sp, #52]
+    add     w10, w0, #15
+    and     w10, w10, #0xFFFFFFF0      // M_pad = (M+15) & ~15
+    str     w10, [sp, #56]
+    add     w11, w1, #31
+    and     w11, w11, #0xFFFFFFE0      // N_pad = (N+31) & ~31
+    str     w11, [sp, #60]
+    lsl     x13, x3, #1               // lda * 2 (bf16 = 2 bytes)
+    str     x13, [sp, #72]
+    lsl     x14, x4, #1               // ldb * 2
+    str     x14, [sp, #88]
+    lsl     x16, x5, #2               // ldc * 4 (fp32 output)
+    str     x16, [sp, #96]
+    // ── Broadcast alpha/beta, save beta bits ──
+    mov     z20.s, s20
+    mov     z22.s, s22
+    fmov    w17, s22
+    str     w17, [sp, #104]            // beta_bits for later zero-check
+    // ── Tile row loop ──
+    mov     w0, #0
+.L_bf_tile_row:
+    str     w0, [sp, #80]
+    mov     w1, #0
+.L_bf_tile_col:
+    str     w1, [sp, #84]
+    // ── Phase 1: init accumulators (beta*C or zero) ──
+    ldr     w17, [sp, #104]
+    cbnz    w17, .L_bf_load_beta
+    zero    {za0.s, za1.s}
+    b       .L_bf_beta_done
+.L_bf_load_beta:
+    zero    {za0.s, za1.s}
+    ldr     x8, [sp, #16]             // C
+    ldr     w0, [sp, #80]             // ti
+    ldr     w1, [sp, #84]             // tj
+    ldr     w14, [sp, #28]            // N
+    ldr     w5, [sp, #44]             // ldc
+    ldr     x16, [sp, #96]            // ldc*4
+    ldr     w6, [sp, #24]             // M
+    cntw    x9
+    ptrue   p0.s
+    mul     w10, w0, w5
+    add     w10, w10, w1
+    add     x8, x8, x10, lsl #2       // &C[ti][tj]
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+    mov     w12, #0
+.L_bf_beta_grp:
+    cmp     w12, w15
+    b.ge    .L_bf_beta_done
+    mov     z0.d, #0
+    mov     z1.d, #0
+    mov     z2.d, #0
+    mov     z3.d, #0
+    mov     z4.d, #0
+    mov     z5.d, #0
+    mov     z6.d, #0
+    mov     z7.d, #0
+    ld1w    {z0.s}, p2/z, [x8]
+    ld1w    {z4.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z0.s, p0/m, z0.s, z22.s
+    fmul    z4.s, p0/m, z4.s, z22.s
+    add     w11, w12, #1
+    cmp     w11, w15
+    b.ge    .L_bf_beta_st
+    add     x8, x8, x16
+    ld1w    {z1.s}, p2/z, [x8]
+    ld1w    {z5.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z1.s, p0/m, z1.s, z22.s
+    fmul    z5.s, p0/m, z5.s, z22.s
+    add     w11, w12, #2
+    cmp     w11, w15
+    b.ge    .L_bf_beta_st
+    add     x8, x8, x16
+    ld1w    {z2.s}, p2/z, [x8]
+    ld1w    {z6.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z2.s, p0/m, z2.s, z22.s
+    fmul    z6.s, p0/m, z6.s, z22.s
+    add     w11, w12, #3
+    cmp     w11, w15
+    b.ge    .L_bf_beta_st
+    add     x8, x8, x16
+    ld1w    {z3.s}, p2/z, [x8]
+    ld1w    {z7.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z3.s, p0/m, z3.s, z22.s
+    fmul    z7.s, p0/m, z7.s, z22.s
+    add     x8, x8, x16
+.L_bf_beta_st:
+    mova    za0h.s[w12, 0:3], {z0.s-z3.s}
+    mova    za1h.s[w12, 0:3], {z4.s-z7.s}
+    add     w12, w12, #4
+    b       .L_bf_beta_grp
+.L_bf_beta_done:
+    // ── Phase 2: K-block accumulation ──
+    ldr     w0, [sp, #80]             // ti
+    ldr     w1, [sp, #84]             // tj
+    ldr     x6, [sp, #0]              // A
+    ldr     x7, [sp, #8]              // B
+    ldr     w2, [sp, #32]             // K
+    ldr     w18, [sp, #48]            // flags
+    ldr     x17, [sp, #72]            // lda*2
+    ldr     w3, [sp, #36]             // lda
+    ldr     w4, [sp, #40]             // ldb
+    ldr     x14, [sp, #88]            // ldb*2
+    ldr     w15, [sp, #52]            // k_blocks
+    ptrue   p0.s
+    cntw    x9
+    // transA=0: A_tile_base = A + ti * lda * 2
+    // transA=1: A_tile_base = A + ti * 2
+    tst     w18, #1
+    b.ne    .L_bf_atbase_trans
+    mul     w10, w0, w3
+    add     x5, x6, x10, lsl #1       // A + ti*lda*2
+    b       .L_bf_atbase_done
+.L_bf_atbase_trans:
+    add     x5, x6, x0, lsl #1        // A + ti*2
+.L_bf_atbase_done:
+    str     x5, [sp, #64]             // save A_tile_base
+    mov     x13, xzr                   // k byte offset
+    cbz     w15, .L_bf_kblock_done
+.L_bf_kblock:
+    // ── Load A tile (16 rows x 16 words = 32 bf16) into za2 ──
+    zero    {za2.s}
+    ldr     w18, [sp, #48]
+    tst     w18, #1
+    b.ne    .L_bf_load_a_trans
+    // transA=0: row r: A[ti+r][k..k+31] via ld1w (16 words = 64 bytes = 32 bf16)
+    add     x8, x5, x13
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    b       .L_bf_a_loaded
+.L_bf_load_a_trans:
+    // transA=1: A is K x M. Load A[k+r][ti..ti+15] for r in 0..15
+    lsr     x10, x13, #1              // k element index (bf16 = 2 bytes)
+    mul     x11, x10, x17             // k * lda * 2
+    add     x8, x5, x11               // A + ti*2 + k*lda*2 = &A[k][ti]
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+.L_bf_a_loaded:
+    // ── Load B and BFMOPA ──
+    // za2v column c gives 16 words = 32 bf16: pair r = (A[row_r][2c], A[row_r][2c+1])
+    // BFMOPA 2:1 widening: za[i][j] += z_a[2i]*z_b[2j] + z_a[2i+1]*z_b[2j+1]
+    ldr     w18, [sp, #48]
+    tst     w18, #2
+    b.ne    .L_bf_fmopa_transB
+    // ── transB=0: B is K x N row-major bf16 ──
+    // z_b pair j = (B[k_base+2c][tj+j], B[k_base+2c+1][tj+j])
+    // Load 2 B rows, zip to interleave K-pairs
+    lsr     x10, x13, #1              // k element index
+    ldr     w1, [sp, #84]             // tj
+    // Set up p4 = predicate for 16 bf16 elements (half of cnth=32)
+    mov     x16, #16
+    whilelt p4.h, xzr, x16
+    // Cols 0-3
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    // z0 covers K-pair at column 0: A rows use k_base = k + 2*0 = k
+    // B row addresses: B + (k+2*col)*ldb*2 + tj*2
+    add     x11, x10, #0              // k + 2*0
+    mul     x11, x11, x14             // * ldb*2
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1     // + tj*2
+    mov     x3, x14                    // B row stride = ldb*2
+    // z0: k_pair (k+0, k+1)
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    add     x8, x11, #32              // right 16 cols: tj+16
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z5.h
+    // z1: k_pair (k+2, k+3)
+    add     x11, x10, #2
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    // z2: k_pair (k+4, k+5)
+    add     x11, x10, #4
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z5.h
+    // z3: k_pair (k+6, k+7)
+    add     x11, x10, #6
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z5.h
+    // Cols 4-7
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    add     x11, x10, #8
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z5.h
+    add     x11, x10, #10
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    add     x11, x10, #12
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z5.h
+    add     x11, x10, #14
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z5.h
+    // Cols 8-11
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    add     x11, x10, #16
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z5.h
+    add     x11, x10, #18
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    add     x11, x10, #20
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z5.h
+    add     x11, x10, #22
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z5.h
+    // Cols 12-15
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    add     x11, x10, #24
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z5.h
+    add     x11, x10, #26
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    add     x11, x10, #28
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z5.h
+    add     x11, x10, #30
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x1, lsl #1
+    ld1h    {z8.h}, p4/z, [x11]
+    add     x8, x11, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z4.h, z8.h, z9.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z4.h
+    add     x8, x11, #32
+    ld1h    {z8.h}, p4/z, [x8]
+    add     x8, x8, x3
+    ld1h    {z9.h}, p4/z, [x8]
+    zip1    z5.h, z8.h, z9.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z5.h
+    b       .L_bf_kblock_advance
+    // ── transB=1: B is N x K bf16. B^T[k][j] = B[j][k] ──
+    // Load B[tj..tj+15][k..k+31] into za3, transpose via vertical extract
+.L_bf_fmopa_transB:
+    // ── Left half: B[tj..tj+15][k..k+31] into za3 ──
+    zero    {za3.s}
+    lsr     x10, x13, #1              // k element index
+    ldr     w1, [sp, #84]             // tj
+    mul     x11, x1, x14              // tj * ldb * 2
+    add     x11, x7, x11              // B + tj*ldb*2
+    add     x11, x11, x10, lsl #1     // + k*2
+    mov     x3, x14                    // row stride = ldb*2
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    // BFMOPA left half into za0
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za0.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za0.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za0.s, p0/m, p0/m, z3.h, z7.h
+    // ── Right half: B[tj+16..tj+31][k..k+31] into za3 ──
+    zero    {za3.s}
+    ldr     w1, [sp, #84]             // tj
+    add     w11, w1, #16              // tj+16
+    mul     x11, x11, x14             // (tj+16) * ldb * 2
+    add     x11, x7, x11              // B + (tj+16)*ldb*2
+    add     x11, x11, x10, lsl #1     // + k*2
+    mov     x3, x14
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    // BFMOPA right half into za1
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z7.h
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    bfmopa  za1.s, p0/m, p0/m, z0.h, z4.h
+    bfmopa  za1.s, p0/m, p0/m, z1.h, z5.h
+    bfmopa  za1.s, p0/m, p0/m, z2.h, z6.h
+    bfmopa  za1.s, p0/m, p0/m, z3.h, z7.h
+.L_bf_kblock_advance:
+    add     x13, x13, #64             // k byte offset += 32 bf16 * 2
+    subs    w15, w15, #1
+    b.ne    .L_bf_kblock
+.L_bf_kblock_done:
+    // ── Phase 3: Store alpha * ZA to C (identical to sgemm) ──
+    ldr     x8, [sp, #16]             // C
+    ldr     w0, [sp, #80]             // ti
+    ldr     w1, [sp, #84]             // tj
+    ldr     w14, [sp, #28]            // N
+    ldr     w5, [sp, #44]             // ldc
+    ldr     x10, [sp, #96]            // ldc*4
+    ldr     w6, [sp, #24]             // M
+    ptrue   p0.s
+    cntw    x9
+    mul     w11, w0, w5
+    add     w11, w11, w1
+    add     x8, x8, x11, lsl #2       // C + (ti*ldc + tj)*4
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+    // Group 0 (rows 0-3)
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #1
+    b.lt    .L_bf_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #2
+    b.lt    .L_bf_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #3
+    b.lt    .L_bf_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #4
+    b.lt    .L_bf_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 1 (rows 4-7)
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #5
+    b.lt    .L_bf_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #6
+    b.lt    .L_bf_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #7
+    b.lt    .L_bf_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #8
+    b.lt    .L_bf_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 2 (rows 8-11)
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #9
+    b.lt    .L_bf_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #10
+    b.lt    .L_bf_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #11
+    b.lt    .L_bf_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #12
+    b.lt    .L_bf_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 3 (rows 12-15)
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #13
+    b.lt    .L_bf_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #14
+    b.lt    .L_bf_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #15
+    b.lt    .L_bf_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #16
+    b.lt    .L_bf_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+.L_bf_store_end:
+    // ── Advance tile column ──
+    ldr     w1, [sp, #84]
+    ldr     w4, [sp, #60]             // N_pad
+    add     w1, w1, #32
+    cmp     w1, w4
+    b.lt    .L_bf_tile_col
+    // ── Advance tile row ──
+    ldr     w0, [sp, #80]
+    ldr     w3, [sp, #56]             // M_pad
+    add     w0, w0, #16
+    cmp     w0, w3
+    b.lt    .L_bf_tile_row
+    // ── Cleanup ──
+    add     sp, sp, #128
+    b       .L_dispatch
+// ================================================================
+// INTEGER GEMM MACRO — generates cblas_igemm / cblas_ugemm / cblas_usgemm
+//
+// C = alpha * cvtf(op(A_i8) @ op(B_i8)) + beta * C
+//
+// Encoding: [opcode][flags:u8][M:u32][N:u32][K:u32]
+//           [lda:u32][ldb:u32][ldc:u32]
+//           [alpha:f32][beta:f32]
+//           [A_ptr:u64][B_ptr:u64][C_ptr:u64]
+//
+// flags bit 0: transA    flags bit 1: transB
+// A, B are i8/u8; C is fp32. lda/ldb in byte elements, ldc in fp32 elements.
+// K must be a multiple of 64 (byte elements).
+//
+// Tile geometry: 16 x 32 output (za0 = left 16 cols, za1 = right 16 cols)
+// za2 = scratch for A tile, za3 = scratch for transB
+// SMOPA/UMOPA/USMOPA 4:1 widening: 4 K-elements per output position per instruction
+//
+// Stack layout (128 bytes): identical to cblas_sgemm
+//   [sp+0]:   A_ptr           [sp+8]:   B_ptr
+//   [sp+16]:  C_ptr           [sp+24]:  M (w)     [sp+28]: N (w)
+//   [sp+32]:  K (w)           [sp+36]:  lda (w)   [sp+40]: ldb (w)
+//   [sp+44]:  ldc (w)         [sp+48]:  flags (w)
+//   [sp+52]:  k_blocks (w)    [sp+56]:  M_pad (w) [sp+60]: N_pad (w)
+//   [sp+64]:  A_tile_base (x) [sp+72]:  lda (x, byte stride)
+//   [sp+80]:  ti (w)          [sp+84]:  tj (w)
+//   [sp+88]:  ldb (x, byte stride) [sp+96]:  ldc*4 (x)
+//   [sp+104]: beta_bits (w)
+// z20 = alpha broadcast, z22 = beta broadcast
+// ================================================================
+.macro CBLAS_INTEGER_GEMM lbl, mopa_inst
+.L_op_\lbl:
+    // ── Parse bytecodes ──
+    ldrb    w18, [x19], #1             // flags
+    ldr     w0, [x19]                  // M
+    ldr     w1, [x19, #4]             // N
+    ldr     w2, [x19, #8]             // K
+    ldr     w3, [x19, #12]            // lda
+    ldr     w4, [x19, #16]            // ldb
+    ldr     w5, [x19, #20]            // ldc
+    ldr     s20, [x19, #24]           // alpha (f32)
+    ldr     s22, [x19, #28]           // beta (f32)
+    add     x19, x19, #32
+    ldr     x6, [x19], #8             // A_ptr
+    ldr     x7, [x19], #8             // B_ptr
+    ldr     x8, [x19], #8             // C_ptr
+    // ── Allocate stack frame ──
+    sub     sp, sp, #128
+    stp     x6, x7, [sp, #0]          // [0] A, [8] B
+    str     x8, [sp, #16]             // [16] C
+    stp     w0, w1, [sp, #24]         // [24] M, [28] N
+    str     w2, [sp, #32]             // [32] K
+    stp     w3, w4, [sp, #36]         // [36] lda, [40] ldb
+    stp     w5, w18, [sp, #44]        // [44] ldc, [48] flags
+    // ── Derived values ──
+    ptrue   p0.s
+    cntw    x9                         // SVLs = 16
+    lsr     w15, w2, #6               // k_blocks = K / 64
+    str     w15, [sp, #52]
+    add     w10, w0, #15
+    and     w10, w10, #0xFFFFFFF0      // M_pad = (M+15) & ~15
+    str     w10, [sp, #56]
+    add     w11, w1, #31
+    and     w11, w11, #0xFFFFFFE0      // N_pad = (N+31) & ~31
+    str     w11, [sp, #60]
+    sxtw    x13, w3                    // lda byte stride (i8 = 1 byte)
+    str     x13, [sp, #72]
+    sxtw    x14, w4                    // ldb byte stride
+    str     x14, [sp, #88]
+    lsl     x16, x5, #2               // ldc * 4 (fp32 output)
+    str     x16, [sp, #96]
+    // ── Broadcast alpha/beta, save beta bits ──
+    mov     z20.s, s20
+    mov     z22.s, s22
+    fmov    w17, s22
+    str     w17, [sp, #104]
+    // ── Tile row loop ──
+    mov     w0, #0
+.L_\lbl\()_tile_row:
+    str     w0, [sp, #80]
+    mov     w1, #0
+.L_\lbl\()_tile_col:
+    str     w1, [sp, #84]
+    // ── Phase 1: init accumulators (beta*C or zero) ──
+    ldr     w17, [sp, #104]
+    cbnz    w17, .L_\lbl\()_load_beta
+    zero    {za0.s, za1.s}
+    b       .L_\lbl\()_beta_done
+.L_\lbl\()_load_beta:
+    zero    {za0.s, za1.s}
+    ldr     x8, [sp, #16]
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     w14, [sp, #28]
+    ldr     w5, [sp, #44]
+    ldr     x16, [sp, #96]
+    ldr     w6, [sp, #24]
+    cntw    x9
+    ptrue   p0.s
+    mul     w10, w0, w5
+    add     w10, w10, w1
+    add     x8, x8, x10, lsl #2
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+    mov     w12, #0
+.L_\lbl\()_beta_grp:
+    cmp     w12, w15
+    b.ge    .L_\lbl\()_beta_done
+    mov     z0.d, #0
+    mov     z1.d, #0
+    mov     z2.d, #0
+    mov     z3.d, #0
+    mov     z4.d, #0
+    mov     z5.d, #0
+    mov     z6.d, #0
+    mov     z7.d, #0
+    ld1w    {z0.s}, p2/z, [x8]
+    ld1w    {z4.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z0.s, p0/m, z0.s, z22.s
+    fmul    z4.s, p0/m, z4.s, z22.s
+    add     w11, w12, #1
+    cmp     w11, w15
+    b.ge    .L_\lbl\()_beta_st
+    add     x8, x8, x16
+    ld1w    {z1.s}, p2/z, [x8]
+    ld1w    {z5.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z1.s, p0/m, z1.s, z22.s
+    fmul    z5.s, p0/m, z5.s, z22.s
+    add     w11, w12, #2
+    cmp     w11, w15
+    b.ge    .L_\lbl\()_beta_st
+    add     x8, x8, x16
+    ld1w    {z2.s}, p2/z, [x8]
+    ld1w    {z6.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z2.s, p0/m, z2.s, z22.s
+    fmul    z6.s, p0/m, z6.s, z22.s
+    add     w11, w12, #3
+    cmp     w11, w15
+    b.ge    .L_\lbl\()_beta_st
+    add     x8, x8, x16
+    ld1w    {z3.s}, p2/z, [x8]
+    ld1w    {z7.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z3.s, p0/m, z3.s, z22.s
+    fmul    z7.s, p0/m, z7.s, z22.s
+    add     x8, x8, x16
+.L_\lbl\()_beta_st:
+    mova    za0h.s[w12, 0:3], {z0.s-z3.s}
+    mova    za1h.s[w12, 0:3], {z4.s-z7.s}
+    add     w12, w12, #4
+    b       .L_\lbl\()_beta_grp
+.L_\lbl\()_beta_done:
+    // ── Phase 2: K-block accumulation ──
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     x6, [sp, #0]
+    ldr     x7, [sp, #8]
+    ldr     w2, [sp, #32]
+    ldr     w18, [sp, #48]
+    ldr     x17, [sp, #72]            // lda (byte stride)
+    ldr     w3, [sp, #36]
+    ldr     w4, [sp, #40]
+    ldr     x14, [sp, #88]            // ldb (byte stride)
+    ldr     w15, [sp, #52]
+    ptrue   p0.s
+    cntw    x9
+    // transA=0: A_tile_base = A + ti * lda
+    // transA=1: A_tile_base = A + ti  (byte offset)
+    tst     w18, #1
+    b.ne    .L_\lbl\()_atbase_trans
+    mul     w10, w0, w3
+    sxtw    x10, w10
+    add     x5, x6, x10               // A + ti*lda
+    b       .L_\lbl\()_atbase_done
+.L_\lbl\()_atbase_trans:
+    add     x5, x6, x0                // A + ti (byte offset)
+.L_\lbl\()_atbase_done:
+    str     x5, [sp, #64]
+    mov     x13, xzr                   // k byte offset
+    cbz     w15, .L_\lbl\()_kblock_done
+.L_\lbl\()_kblock:
+    // ── Load A tile (16 rows x 16 words = 64 i8) into za2 ──
+    zero    {za2.s}
+    ldr     w18, [sp, #48]
+    tst     w18, #1
+    b.ne    .L_\lbl\()_load_a_trans
+    // transA=0: row r: A[ti+r][k..k+63] via ld1w (16 words = 64 bytes)
+    add     x8, x5, x13
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    b       .L_\lbl\()_a_loaded
+.L_\lbl\()_load_a_trans:
+    // transA=1: A is K x M. Load A[k+r][ti..ti+15] for r in 0..15
+    // Each row = 16 bytes starting at A + (k+r)*lda + ti
+    // ld1w loads 64 bytes = 16 words; but we want 16 bytes spread across columns.
+    // Since element size is 1 byte, ti offsets by 1 byte per column.
+    // We need to load 64 bytes per za2 row, so we load A[k+r][ti..ti+63].
+    // But for transA, the logical A^T has M columns, so this loads beyond M if M<64.
+    // The za2v column extraction will only use the first 16 rows of output anyway.
+    // Load: &A[k][ti] = A + k*lda + ti, stride = lda
+    add     x8, x5, x13               // A + ti + k (k is byte offset, ti is byte offset)
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+.L_\lbl\()_a_loaded:
+    // ── Load B and MOPA ──
+    // za2v column c gives 16 words = 64 i8: group r = (A[row_r][4c..4c+3])
+    // SMOPA/UMOPA/USMOPA 4:1 widening: za[i][j] += sum(d=0..3) z_a[4i+d]*z_b[4j+d]
+    ldr     w18, [sp, #48]
+    tst     w18, #2
+    b.ne    .L_\lbl\()_mopa_transB
+    // ── transB=0: B is K x N row-major i8 ──
+    // M4 SMOPA workaround: SMOPA .b only uses the low byte of each .s group (d=0).
+    // We compensate by calling SMOPA 4x per za2v column, shifting A data by d*8 bits
+    // and loading each B row individually via ld1b {z.s} (byte-to-word widening).
+    mov     x3, x14                    // B row stride = ldb
+    mov     x16, #16                   // right-half column offset
+.macro IGEMM_NOTRANSB_COL4 col_base
+    mov     w12, #\col_base
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    // Process z0 (za2v column col_base, k_offset = col_base * 4)
+    ldr     x11, [sp, #8]             // B base
+    add     x10, x13, #(\col_base * 4)
+    madd    x11, x10, x14, x11        // B + (k + col_base*4) * ldb
+    ldr     w1, [sp, #84]
+    add     x11, x11, x1              // + tj → B[k+col_base*4][tj]
+    // d=0: z_a = z0 as-is (low byte = A[i][4*col_base+0])
+    ld1b    {z4.s}, p0/z, [x11]       // left 16 cols, byte→word
+    \mopa_inst za0.s, p0/m, p0/m, z0.b, z4.b
+    add     x8, x11, x16
+    ld1b    {z4.s}, p0/z, [x8]        // right 16 cols
+    \mopa_inst za1.s, p0/m, p0/m, z0.b, z4.b
+    // d=1: shift z0 right by 8 to expose byte 1
+    lsr     z5.s, z0.s, #8
+    add     x8, x11, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    // d=2
+    lsr     z5.s, z0.s, #16
+    add     x8, x11, x3, lsl #1       // x11 + 2*ldb
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    // d=3
+    lsr     z5.s, z0.s, #24
+    add     x8, x11, x3, lsl #1       // x11 + 2*ldb
+    add     x8, x8, x3                // x11 + 3*ldb
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    // Process z1 (za2v column col_base+1, k_offset = col_base*4 + 4)
+    ldr     x11, [sp, #8]
+    add     x10, x13, #(\col_base * 4 + 4)
+    madd    x11, x10, x14, x11
+    ldr     w1, [sp, #84]
+    add     x11, x11, x1
+    ld1b    {z4.s}, p0/z, [x11]
+    \mopa_inst za0.s, p0/m, p0/m, z1.b, z4.b
+    add     x8, x11, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z1.b, z4.b
+    lsr     z5.s, z1.s, #8
+    add     x8, x11, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z1.s, #16
+    add     x8, x11, x3, lsl #1
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z1.s, #24
+    add     x8, x11, x3, lsl #1
+    add     x8, x8, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    // Process z2 (za2v column col_base+2, k_offset = col_base*4 + 8)
+    ldr     x11, [sp, #8]
+    add     x10, x13, #(\col_base * 4 + 8)
+    madd    x11, x10, x14, x11
+    ldr     w1, [sp, #84]
+    add     x11, x11, x1
+    ld1b    {z4.s}, p0/z, [x11]
+    \mopa_inst za0.s, p0/m, p0/m, z2.b, z4.b
+    add     x8, x11, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z2.b, z4.b
+    lsr     z5.s, z2.s, #8
+    add     x8, x11, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z2.s, #16
+    add     x8, x11, x3, lsl #1
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z2.s, #24
+    add     x8, x11, x3, lsl #1
+    add     x8, x8, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    // Process z3 (za2v column col_base+3, k_offset = col_base*4 + 12)
+    ldr     x11, [sp, #8]
+    add     x10, x13, #(\col_base * 4 + 12)
+    madd    x11, x10, x14, x11
+    ldr     w1, [sp, #84]
+    add     x11, x11, x1
+    ld1b    {z4.s}, p0/z, [x11]
+    \mopa_inst za0.s, p0/m, p0/m, z3.b, z4.b
+    add     x8, x11, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z3.b, z4.b
+    lsr     z5.s, z3.s, #8
+    add     x8, x11, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z3.s, #16
+    add     x8, x11, x3, lsl #1
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+    lsr     z5.s, z3.s, #24
+    add     x8, x11, x3, lsl #1
+    add     x8, x8, x3
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za0.s, p0/m, p0/m, z5.b, z4.b
+    add     x8, x8, x16
+    ld1b    {z4.s}, p0/z, [x8]
+    \mopa_inst za1.s, p0/m, p0/m, z5.b, z4.b
+.endm
+    IGEMM_NOTRANSB_COL4 0
+    IGEMM_NOTRANSB_COL4 4
+    IGEMM_NOTRANSB_COL4 8
+    IGEMM_NOTRANSB_COL4 12
+.purgem IGEMM_NOTRANSB_COL4
+    b       .L_\lbl\()_kblock_advance
+    // ── transB=1: B is N x K i8. B^T[k][j] = B[j][k] ──
+    // Load B[tj..tj+15][k..k+63] into za3, transpose via vertical extract
+.L_\lbl\()_mopa_transB:
+    // ── Left half: B[tj..tj+15][k..k+63] into za3 ──
+    zero    {za3.s}
+    ldr     w1, [sp, #84]             // tj
+    mul     x11, x1, x14              // tj * ldb
+    add     x11, x7, x11              // B + tj*ldb
+    add     x11, x11, x13             // + k byte offset
+    mov     x3, x14                    // row stride = ldb
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    // MOPA left half into za0
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za0.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za0.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za0.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za0.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za0.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za0.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za0.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za0.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za0.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za0.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za0.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za0.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za0.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za0.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za0.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za0.s, p0/m, p0/m, z3.b, z7.b
+    // ── Right half: B[tj+16..tj+31][k..k+63] into za3 ──
+    zero    {za3.s}
+    ldr     w1, [sp, #84]
+    add     w11, w1, #16
+    sxtw    x11, w11
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x13
+    mov     x3, x14
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    // MOPA right half into za1
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za1.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za1.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za1.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za1.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za1.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za1.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za1.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za1.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za1.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za1.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za1.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za1.s, p0/m, p0/m, z3.b, z7.b
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    \mopa_inst za1.s, p0/m, p0/m, z0.b, z4.b
+    \mopa_inst za1.s, p0/m, p0/m, z1.b, z5.b
+    \mopa_inst za1.s, p0/m, p0/m, z2.b, z6.b
+    \mopa_inst za1.s, p0/m, p0/m, z3.b, z7.b
+.L_\lbl\()_kblock_advance:
+    add     x13, x13, #64             // k byte offset += 64 i8
+    subs    w15, w15, #1
+    b.ne    .L_\lbl\()_kblock
+.L_\lbl\()_kblock_done:
+    // ── Phase 3: Store scvtf(accum) * alpha + (beta already folded into za) to C ──
+    ldr     x8, [sp, #16]
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     w14, [sp, #28]
+    ldr     w5, [sp, #44]
+    ldr     x10, [sp, #96]
+    ldr     w6, [sp, #24]
+    ptrue   p0.s
+    cntw    x9
+    mul     w11, w0, w5
+    add     w11, w11, w1
+    add     x8, x8, x11, lsl #2
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+    // Group 0 (rows 0-3): extract int32, scvtf, fmul alpha
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    scvtf   z0.s, p0/m, z0.s
+    scvtf   z1.s, p0/m, z1.s
+    scvtf   z2.s, p0/m, z2.s
+    scvtf   z3.s, p0/m, z3.s
+    scvtf   z4.s, p0/m, z4.s
+    scvtf   z5.s, p0/m, z5.s
+    scvtf   z6.s, p0/m, z6.s
+    scvtf   z7.s, p0/m, z7.s
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #1
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #2
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #3
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #4
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 1 (rows 4-7)
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    scvtf   z0.s, p0/m, z0.s
+    scvtf   z1.s, p0/m, z1.s
+    scvtf   z2.s, p0/m, z2.s
+    scvtf   z3.s, p0/m, z3.s
+    scvtf   z4.s, p0/m, z4.s
+    scvtf   z5.s, p0/m, z5.s
+    scvtf   z6.s, p0/m, z6.s
+    scvtf   z7.s, p0/m, z7.s
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #5
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #6
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #7
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #8
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 2 (rows 8-11)
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    scvtf   z0.s, p0/m, z0.s
+    scvtf   z1.s, p0/m, z1.s
+    scvtf   z2.s, p0/m, z2.s
+    scvtf   z3.s, p0/m, z3.s
+    scvtf   z4.s, p0/m, z4.s
+    scvtf   z5.s, p0/m, z5.s
+    scvtf   z6.s, p0/m, z6.s
+    scvtf   z7.s, p0/m, z7.s
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #9
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #10
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #11
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #12
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    // Group 3 (rows 12-15)
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    scvtf   z0.s, p0/m, z0.s
+    scvtf   z1.s, p0/m, z1.s
+    scvtf   z2.s, p0/m, z2.s
+    scvtf   z3.s, p0/m, z3.s
+    scvtf   z4.s, p0/m, z4.s
+    scvtf   z5.s, p0/m, z5.s
+    scvtf   z6.s, p0/m, z6.s
+    scvtf   z7.s, p0/m, z7.s
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #13
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #14
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #15
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #16
+    b.lt    .L_\lbl\()_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+.L_\lbl\()_store_end:
+    // ── Advance tile column ──
+    ldr     w1, [sp, #84]
+    ldr     w4, [sp, #60]
+    add     w1, w1, #32
+    cmp     w1, w4
+    b.lt    .L_\lbl\()_tile_col
+    // ── Advance tile row ──
+    ldr     w0, [sp, #80]
+    ldr     w3, [sp, #56]
+    add     w0, w0, #16
+    cmp     w0, w3
+    b.lt    .L_\lbl\()_tile_row
+    // ── Cleanup ──
+    add     sp, sp, #128
+    b       .L_dispatch
+.endm
+// ── Instantiate the three integer GEMM variants ──
+    CBLAS_INTEGER_GEMM cblas_igemm, smopa
+    CBLAS_INTEGER_GEMM cblas_ugemm, umopa
+    CBLAS_INTEGER_GEMM cblas_usgemm, usmopa
+// ================================================================
+// GEMM_TILE_FP32 (0x64) -- Tile-range fp32 GEMM via FMOPA
+//
+// Same inner kernel as cblas_sgemm but only computes output tiles in
+// the range [ti_start..ti_start+ti_count, tj_start..tj_start+tj_count].
+// This enables multi-threaded (assign tile ranges to threads) and
+// multi-node (assign tile ranges matching parameter shards) execution.
+//
+// Encoding: [0x64][flags:u8][M:u32][N:u32][K:u32]
+//           [lda:u32][ldb:u32][ldc:u32]
+//           [alpha:f32][beta:f32]
+//           [ti_start:u32][tj_start:u32][ti_count:u32][tj_count:u32]
+//           [A_ptr:u64][B_ptr:u64][C_ptr:u64]
+//
+// flags bit 0: transA    flags bit 1: transB
+// M, N are the FULL matrix dimensions (used for edge predication).
+// ti_start, tj_start: starting row/column (should be multiples of 16/32).
+// ti_count, tj_count: number of rows/columns to process from the start.
+// Total immediate payload after opcode: 73 bytes
+//
+// Tile geometry: identical to cblas_sgemm (16 x 32 output tiles)
+// Stack layout (128 bytes):
+//   [sp+0]:   A_ptr           [sp+8]:   B_ptr
+//   [sp+16]:  C_ptr           [sp+24]:  M (w)     [sp+28]: N (w)
+//   [sp+32]:  K (w)           [sp+36]:  lda (w)   [sp+40]: ldb (w)
+//   [sp+44]:  ldc (w)         [sp+48]:  flags (w)
+//   [sp+52]:  k_blocks (w)    [sp+56]:  ti_end (w) [sp+60]: tj_end (w)
+//   [sp+64]:  A_tile_base (x) [sp+72]:  lda*4 (x)
+//   [sp+80]:  ti (w)          [sp+84]:  tj (w)
+//   [sp+88]:  ldb*4 (x)       [sp+96]:  ldc*4 (x)
+//   [sp+104]: beta_bits (w)   [sp+108]: tj_start (w)
+// z20 = alpha broadcast, z22 = beta broadcast
+// ================================================================
+.L_op_gemm_tile_fp32:
+    // ── Parse bytecodes ──
+    ldrb    w18, [x19], #1             // flags
+    ldr     w0, [x19]                  // M
+    ldr     w1, [x19, #4]             // N
+    ldr     w2, [x19, #8]             // K
+    ldr     w3, [x19, #12]            // lda
+    ldr     w4, [x19, #16]            // ldb
+    ldr     w5, [x19, #20]            // ldc
+    ldr     s20, [x19, #24]           // alpha (f32)
+    ldr     s22, [x19, #28]           // beta (f32)
+    ldr     w20, [x19, #32]           // ti_start
+    ldr     w21, [x19, #36]           // tj_start
+    ldr     w22, [x19, #40]           // ti_count
+    ldr     w23, [x19, #44]           // tj_count
+    add     x19, x19, #48
+    ldr     x6, [x19], #8             // A_ptr
+    ldr     x7, [x19], #8             // B_ptr
+    ldr     x8, [x19], #8             // C_ptr
+    // ── Allocate stack frame ──
+    sub     sp, sp, #128
+    stp     x6, x7, [sp, #0]
+    str     x8, [sp, #16]
+    stp     w0, w1, [sp, #24]
+    str     w2, [sp, #32]
+    stp     w3, w4, [sp, #36]
+    stp     w5, w18, [sp, #44]
+    str     w21, [sp, #108]            // save tj_start
+    // ── Derived values ──
+    ptrue   p0.s
+    cntw    x9
+    lsr     w15, w2, #4               // k_blocks = K / 16
+    str     w15, [sp, #52]
+    // ti_end = ti_start + ((ti_count + 15) & ~15)
+    add     w10, w22, #15
+    and     w10, w10, #0xFFFFFFF0
+    add     w10, w20, w10              // ti_end = ti_start + padded ti_count
+    str     w10, [sp, #56]
+    // tj_end = tj_start + ((tj_count + 31) & ~31)
+    add     w11, w23, #31
+    and     w11, w11, #0xFFFFFFE0
+    add     w11, w21, w11              // tj_end = tj_start + padded tj_count
+    str     w11, [sp, #60]
+    lsl     x13, x3, #2               // lda * 4
+    str     x13, [sp, #72]
+    lsl     x14, x4, #2               // ldb * 4
+    str     x14, [sp, #88]
+    lsl     x16, x5, #2               // ldc * 4
+    str     x16, [sp, #96]
+    // ── Broadcast alpha/beta, save beta bits ──
+    mov     z20.s, s20
+    mov     z22.s, s22
+    fmov    w17, s22
+    str     w17, [sp, #104]
+    // ── Tile row loop (starts at ti_start) ──
+    mov     w0, w20                    // w0 = ti_start
+.L_gt_tile_row:
+    str     w0, [sp, #80]
+    ldr     w1, [sp, #108]             // w1 = tj_start
+.L_gt_tile_col:
+    str     w1, [sp, #84]
+    // ── Phase 1: init accumulators (beta*C or zero) ──
+    ldr     w17, [sp, #104]
+    cbnz    w17, .L_gt_load_beta
+    zero    {za0.s, za1.s}
+    b       .L_gt_beta_done
+.L_gt_load_beta:
+    zero    {za0.s, za1.s}
+    ldr     x8, [sp, #16]
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     w14, [sp, #28]
+    ldr     w5, [sp, #44]
+    ldr     x16, [sp, #96]
+    ldr     w6, [sp, #24]
+    cntw    x9
+    ptrue   p0.s
+    mul     w10, w0, w5
+    add     w10, w10, w1
+    add     x8, x8, x10, lsl #2
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+    mov     w12, #0
+.L_gt_beta_grp:
+    cmp     w12, w15
+    b.ge    .L_gt_beta_done
+    mov     z0.d, #0
+    mov     z1.d, #0
+    mov     z2.d, #0
+    mov     z3.d, #0
+    mov     z4.d, #0
+    mov     z5.d, #0
+    mov     z6.d, #0
+    mov     z7.d, #0
+    ld1w    {z0.s}, p2/z, [x8]
+    ld1w    {z4.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z0.s, p0/m, z0.s, z22.s
+    fmul    z4.s, p0/m, z4.s, z22.s
+    add     w11, w12, #1
+    cmp     w11, w15
+    b.ge    .L_gt_beta_st
+    add     x8, x8, x16
+    ld1w    {z1.s}, p2/z, [x8]
+    ld1w    {z5.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z1.s, p0/m, z1.s, z22.s
+    fmul    z5.s, p0/m, z5.s, z22.s
+    add     w11, w12, #2
+    cmp     w11, w15
+    b.ge    .L_gt_beta_st
+    add     x8, x8, x16
+    ld1w    {z2.s}, p2/z, [x8]
+    ld1w    {z6.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z2.s, p0/m, z2.s, z22.s
+    fmul    z6.s, p0/m, z6.s, z22.s
+    add     w11, w12, #3
+    cmp     w11, w15
+    b.ge    .L_gt_beta_st
+    add     x8, x8, x16
+    ld1w    {z3.s}, p2/z, [x8]
+    ld1w    {z7.s}, p3/z, [x8, x9, lsl #2]
+    fmul    z3.s, p0/m, z3.s, z22.s
+    fmul    z7.s, p0/m, z7.s, z22.s
+    add     x8, x8, x16
+.L_gt_beta_st:
+    mova    za0h.s[w12, 0:3], {z0.s-z3.s}
+    mova    za1h.s[w12, 0:3], {z4.s-z7.s}
+    add     w12, w12, #4
+    b       .L_gt_beta_grp
+.L_gt_beta_done:
+    // ── Phase 2: K-block accumulation (identical to sgemm) ──
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     x6, [sp, #0]
+    ldr     x7, [sp, #8]
+    ldr     w2, [sp, #32]
+    ldr     w18, [sp, #48]
+    ldr     x17, [sp, #72]
+    ldr     w3, [sp, #36]
+    ldr     w4, [sp, #40]
+    ldr     x14, [sp, #88]
+    ldr     w15, [sp, #52]
+    ptrue   p0.s
+    cntw    x9
+    tst     w18, #1
+    b.ne    .L_gt_atbase_trans
+    mul     w10, w0, w3
+    add     x5, x6, x10, lsl #2
+    b       .L_gt_atbase_done
+.L_gt_atbase_trans:
+    add     x5, x6, x0, lsl #2
+.L_gt_atbase_done:
+    str     x5, [sp, #64]
+    mov     x13, xzr
+    cbz     w15, .L_gt_kblock_done
+.L_gt_kblock:
+    // ── Load A tile into za2 ──
+    zero    {za2.s}
+    ldr     w18, [sp, #48]
+    tst     w18, #1
+    b.ne    .L_gt_load_a_trans
+    add     x8, x5, x13
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    b       .L_gt_a_loaded
+.L_gt_load_a_trans:
+    lsr     x10, x13, #2
+    mul     x11, x10, x17
+    add     x8, x5, x11
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x17
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x17
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+.L_gt_a_loaded:
+    // ── Load B rows and FMOPA ──
+    ldr     w18, [sp, #48]
+    tst     w18, #2
+    b.ne    .L_gt_fmopa_transB
+    // ── transB=0 ──
+    lsr     x10, x13, #2
+    mul     x11, x10, x14
+    add     x11, x7, x11
+    ldr     w1, [sp, #84]
+    add     x11, x11, x1, lsl #2
+    mov     x3, x14
+.macro GT_FMOPA_NOTRANSB_COL4 col_base
+    mov     w12, #\col_base
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    ld1w    {z4.s}, p0/z, [x11]
+    ld1w    {z5.s}, p0/z, [x11, x9, lsl #2]
+    fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+    fmopa   za1.s, p0/m, p0/m, z0.s, z5.s
+    add     x11, x11, x3
+    ld1w    {z4.s}, p0/z, [x11]
+    ld1w    {z5.s}, p0/z, [x11, x9, lsl #2]
+    fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+    fmopa   za1.s, p0/m, p0/m, z1.s, z5.s
+    add     x11, x11, x3
+    ld1w    {z4.s}, p0/z, [x11]
+    ld1w    {z5.s}, p0/z, [x11, x9, lsl #2]
+    fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+    fmopa   za1.s, p0/m, p0/m, z2.s, z5.s
+    add     x11, x11, x3
+    ld1w    {z4.s}, p0/z, [x11]
+    ld1w    {z5.s}, p0/z, [x11, x9, lsl #2]
+    fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+    fmopa   za1.s, p0/m, p0/m, z3.s, z5.s
+    add     x11, x11, x3
+.endm
+    GT_FMOPA_NOTRANSB_COL4 0
+    GT_FMOPA_NOTRANSB_COL4 4
+    GT_FMOPA_NOTRANSB_COL4 8
+    GT_FMOPA_NOTRANSB_COL4 12
+.purgem GT_FMOPA_NOTRANSB_COL4
+    b       .L_gt_kblock_advance
+    // ── transB=1 ──
+.L_gt_fmopa_transB:
+    // Left half: B[tj..tj+15][k..k+15] into za3
+    zero    {za3.s}
+    lsr     x10, x13, #2
+    ldr     w1, [sp, #84]
+    mul     x11, x1, x14
+    add     x11, x7, x11
+    add     x11, x11, x10, lsl #2
+    mov     x3, x14
+.macro GT_LOAD_ZA3_16ROWS
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    add     x11, x11, x3
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z1.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z2.s}, p0/z, [x11]
+    add     x11, x11, x3
+    ld1w    {z3.s}, p0/z, [x11]
+    mova    za3h.s[w12, 0:3], {z0.s-z3.s}
+.endm
+    GT_LOAD_ZA3_16ROWS
+.macro GT_FMOPA_TRANSB_HALF za_dst
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    fmopa   \za_dst\().s, p0/m, p0/m, z0.s, z4.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z1.s, z5.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z2.s, z6.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z3.s, z7.s
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    fmopa   \za_dst\().s, p0/m, p0/m, z0.s, z4.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z1.s, z5.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z2.s, z6.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z3.s, z7.s
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    fmopa   \za_dst\().s, p0/m, p0/m, z0.s, z4.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z1.s, z5.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z2.s, z6.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z3.s, z7.s
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za3v.s[w12, 0:3]
+    fmopa   \za_dst\().s, p0/m, p0/m, z0.s, z4.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z1.s, z5.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z2.s, z6.s
+    fmopa   \za_dst\().s, p0/m, p0/m, z3.s, z7.s
+.endm
+    GT_FMOPA_TRANSB_HALF za0
+    // Right half: B[tj+16..tj+31][k..k+15] into za3
+    zero    {za3.s}
+    ldr     w1, [sp, #84]
+    add     w11, w1, #16
+    mul     x11, x11, x14
+    add     x11, x7, x11
+    add     x11, x11, x10, lsl #2
+    mov     x3, x14
+    GT_LOAD_ZA3_16ROWS
+    GT_FMOPA_TRANSB_HALF za1
+.purgem GT_LOAD_ZA3_16ROWS
+.purgem GT_FMOPA_TRANSB_HALF
+.L_gt_kblock_advance:
+    add     x13, x13, #64
+    subs    w15, w15, #1
+    b.ne    .L_gt_kblock
+.L_gt_kblock_done:
+    // ── Phase 3: Store alpha * ZA to C ──
+    ldr     x8, [sp, #16]
+    ldr     w0, [sp, #80]
+    ldr     w1, [sp, #84]
+    ldr     w14, [sp, #28]
+    ldr     w5, [sp, #44]
+    ldr     x10, [sp, #96]
+    ldr     w6, [sp, #24]
+    ptrue   p0.s
+    cntw    x9
+    mul     w11, w0, w5
+    add     w11, w11, w1
+    add     x8, x8, x11, lsl #2
+    sub     w3, w14, w1
+    mov     w4, #32
+    cmp     w3, w4
+    csel    w3, w3, w4, lt
+    whilelt p2.s, xzr, x3
+    sub     w4, w3, #16
+    cmp     w4, #0
+    csel    w4, wzr, w4, lt
+    whilelt p3.s, xzr, x4
+    sub     w15, w6, w0
+    mov     w3, #16
+    cmp     w15, w3
+    csel    w15, w15, w3, lt
+.macro GT_STORE_GROUP grp_base
+    mov     w12, #\grp_base
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    mova    {z4.s-z7.s}, za1h.s[w12, 0:3]
+    fmul    z0.s, z0.s, z20.s
+    fmul    z1.s, z1.s, z20.s
+    fmul    z2.s, z2.s, z20.s
+    fmul    z3.s, z3.s, z20.s
+    fmul    z4.s, z4.s, z20.s
+    fmul    z5.s, z5.s, z20.s
+    fmul    z6.s, z6.s, z20.s
+    fmul    z7.s, z7.s, z20.s
+    cmp     w15, #(\grp_base + 1)
+    b.lt    .L_gt_store_end
+    st1w    {z0.s}, p2, [x8]
+    st1w    {z4.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #(\grp_base + 2)
+    b.lt    .L_gt_store_end
+    st1w    {z1.s}, p2, [x8]
+    st1w    {z5.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #(\grp_base + 3)
+    b.lt    .L_gt_store_end
+    st1w    {z2.s}, p2, [x8]
+    st1w    {z6.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+    cmp     w15, #(\grp_base + 4)
+    b.lt    .L_gt_store_end
+    st1w    {z3.s}, p2, [x8]
+    st1w    {z7.s}, p3, [x8, x9, lsl #2]
+    add     x8, x8, x10
+.endm
+    GT_STORE_GROUP 0
+    GT_STORE_GROUP 4
+    GT_STORE_GROUP 8
+    GT_STORE_GROUP 12
+.purgem GT_STORE_GROUP
+.L_gt_store_end:
+    // ── Advance tile column ──
+    ldr     w1, [sp, #84]
+    ldr     w4, [sp, #60]             // tj_end
+    add     w1, w1, #32
+    cmp     w1, w4
+    b.lt    .L_gt_tile_col
+    // ── Advance tile row ──
+    ldr     w0, [sp, #80]
+    ldr     w3, [sp, #56]             // ti_end
+    add     w0, w0, #16
+    cmp     w0, w3
+    b.lt    .L_gt_tile_row
+    // ── Cleanup ──
+    add     sp, sp, #128
+    b       .L_dispatch
+// ================================================================
+// SOFTMAX_PARTIAL_FP32 (0x65) — Partial softmax for cross-shard merging
+//
+// Encoding: [0x65][dim:u32][in_ptr:u64][out_ptr:u64][max_ptr:u64][sum_ptr:u64]
+//
+// Pass 1: find local_max = max(in[0..dim-1])
+// Pass 2: out[i] = exp(in[i] - local_max), local_sum = sum(out[0..dim-1])
+// Stores local_max to *max_ptr and local_sum to *sum_ptr.
+// dim must be a multiple of cntw (16).
+// ================================================================
+.L_op_softmax_partial_fp32:
+    ldr     w22, [x19]             // dim
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // output_ptr
+    ldr     x12, [x19], #8        // max_ptr
+    ldr     x13, [x19], #8        // sum_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    // ── Load exp polynomial constants ──
+    movz    w4, #0x3FB8, lsl #16
+    movk    w4, #0xAA3B
+    fmov    s28, w4
+    mov     z28.s, s28             // log2(e)
+    movz    w4, #0x3C1D, lsl #16
+    movk    w4, #0x955A
+    fmov    s29, w4
+    mov     z29.s, s29             // c4
+    movz    w4, #0x3D63, lsl #16
+    movk    w4, #0x5847
+    fmov    s30, w4
+    mov     z30.s, s30             // c3
+    movz    w4, #0x3E75, lsl #16
+    movk    w4, #0xFDF0
+    fmov    s31, w4
+    mov     z31.s, s31             // c2
+    movz    w4, #0x3F31, lsl #16
+    movk    w4, #0x7218
+    fmov    s27, w4
+    mov     z27.s, s27             // c1 = ln(2)
+    fmov    z26.s, #1.0            // c0 = 1.0
+    mov     x14, x8               // save input_ptr
+    mov     x15, x11              // save output_ptr
+    // ── Pass 1: find max ──
+    movz    w4, #0xFF80, lsl #16   // -inf
+    fmov    s16, w4
+    mov     z16.s, s16
+    mov     w10, w22
+.L_sp_max:
+    ld1w    {z0.s}, p0/z, [x8]
+    fmax    z16.s, p0/m, z16.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_sp_max
+    fmaxv   s16, p0, z16.s
+    mov     z16.s, s16
+    // ── Store max ──
+    str     s16, [x12]
+    // ── Pass 2: exp(x - max) + accumulate sum ──
+    fmov    z17.s, #0.0
+    mov     x8, x14
+    mov     x11, x15
+    mov     w10, w22
+.L_sp_exp:
+    ld1w    {z0.s}, p0/z, [x8]
+    fsub    z0.s, z0.s, z16.s
+    fmul    z1.s, z0.s, z28.s     // x * log2(e)
+    frintm  z2.s, p0/m, z1.s      // n = floor
+    fsub    z3.s, z1.s, z2.s      // frac
+    fmul    z4.s, z29.s, z3.s     // Horner: c4*f
+    fadd    z4.s, z4.s, z30.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z31.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z27.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z26.s     // poly(frac)
+    fcvtzs  z5.s, p0/m, z2.s
+    mov     z6.s, #-127
+    smax    z5.s, p0/m, z5.s, z6.s
+    add     z5.s, z5.s, #127
+    lsl     z5.s, z5.s, #23       // 2^n as IEEE bits
+    fmul    z4.s, z4.s, z5.s      // exp(x - max)
+    st1w    {z4.s}, p0, [x11]
+    fadd    z17.s, z17.s, z4.s
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_sp_exp
+    // ── Store sum ──
+    faddv   s17, p0, z17.s
+    str     s17, [x13]
+    b       .L_dispatch
+// ================================================================
+// SOFTMAX_CORRECT_FP32 (0x66) — Apply max-correction to partial softmax
+//
+// Encoding: [0x66][dim:u32][local_max:f32][global_max:f32]
+//           [inout_ptr:u64][sum_ptr:u64]
+//
+// correction = exp(local_max - global_max)
+// For each i: inout[i] *= correction
+// *sum_ptr *= correction
+// dim must be a multiple of cntw (16).
+// ================================================================
+.L_op_softmax_correct_fp32:
+    ldr     w22, [x19]             // dim
+    ldr     s0, [x19, #4]         // local_max
+    ldr     s1, [x19, #8]         // global_max
+    add     x19, x19, #12
+    ldr     x8, [x19], #8         // inout_ptr
+    ldr     x11, [x19], #8        // sum_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    // ── Compute correction = exp(local_max - global_max) ──
+    fsub    s2, s0, s1             // local_max - global_max
+    // Scalar exp via polynomial
+    movz    w4, #0x3FB8, lsl #16
+    movk    w4, #0xAA3B
+    fmov    s28, w4                // log2(e)
+    fmul    s3, s2, s28            // x * log2(e)
+    frintm  s4, s3                 // n = floor
+    fsub    s5, s3, s4             // frac
+    movz    w4, #0x3C1D, lsl #16
+    movk    w4, #0x955A
+    fmov    s6, w4                 // c4
+    fmul    s6, s6, s5             // c4*f
+    movz    w4, #0x3D63, lsl #16
+    movk    w4, #0x5847
+    fmov    s7, w4
+    fadd    s6, s6, s7             // +c3
+    fmul    s6, s6, s5
+    movz    w4, #0x3E75, lsl #16
+    movk    w4, #0xFDF0
+    fmov    s7, w4
+    fadd    s6, s6, s7             // +c2
+    fmul    s6, s6, s5
+    movz    w4, #0x3F31, lsl #16
+    movk    w4, #0x7218
+    fmov    s7, w4
+    fadd    s6, s6, s7             // +c1
+    fmul    s6, s6, s5
+    fmov    s7, #1.0
+    fadd    s6, s6, s7             // +c0 = poly(frac)
+    fcvtzs  w4, s4                 // n as int
+    mov     w5, #-127
+    cmp     w4, w5
+    csel    w4, w5, w4, lt
+    add     w4, w4, #127
+    lsl     w4, w4, #23            // 2^n as IEEE bits
+    fmov    s7, w4
+    fmul    s6, s6, s7             // correction = exp(local_max - global_max)
+    // ── Broadcast correction and apply ──
+    mov     z16.s, s6
+    mov     w10, w22
+.L_sc_loop:
+    ld1w    {z0.s}, p0/z, [x8]
+    fmul    z0.s, z0.s, z16.s
+    st1w    {z0.s}, p0, [x8]
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_sc_loop
+    // ── Correct sum ──
+    ldr     s0, [x11]
+    fmul    s0, s0, s6
+    str     s0, [x11]
+    b       .L_dispatch
+// ================================================================
+// REDUCE_SUM_SQ_FP32 (0x67) — Partial sum of squares
+//
+// Encoding: [0x67][dim:u32][in_ptr:u64][out_ptr:u64]
+//
+// result = sum(in[i]^2) for i in 0..dim-1. Stores scalar fp32 to *out_ptr.
+// dim must be a multiple of cntw (16).
+// Building block for decomposed RMS norm: each shard computes partial sum_sq,
+// merge across shards, then apply rsqrt(sum_sq/total_dim + eps) * x.
+// ================================================================
+.L_op_reduce_sum_sq_fp32:
+    ldr     w22, [x19]             // dim
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // in_ptr
+    ldr     x11, [x19], #8        // out_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    fmov    z0.s, #0.0             // accumulator
+    mov     w10, w22
+.L_rss_loop:
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z0.s, p0/m, z1.s, z1.s // accum += x[i]^2
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_rss_loop
+    faddv   s0, p0, z0.s
+    str     s0, [x11]
+    b       .L_dispatch
+// ================================================================
+// REDUCE_COL_SUM_FP32 (0x68) — Column-wise sum (bias gradient)
+//
+// dst[j] = sum(src[i * stride + j]) for i in 0..M-1, j in 0..N-1
+// Processes 16 columns per outer iteration. Inner loop streams down
+// M rows with stride between them — sequential access per column group.
+//
+// Encoding: [0x68][M:u32][N:u32][stride:u32][src_ptr:u64][dst_ptr:u64]
+//
+// M = number of rows to sum
+// N = number of columns in the output (must be multiple of 16)
+// stride = row stride in fp32 elements (typically N for contiguous matrix)
+// ================================================================
+.L_op_reduce_col_sum_fp32:
+    ldr     w22, [x19]             // M (rows)
+    ldr     w23, [x19, #4]        // N (columns)
+    ldr     w24, [x19, #8]        // stride (fp32 elements)
+    add     x19, x19, #12
+    ldr     x8, [x19], #8         // src_ptr
+    ldr     x11, [x19], #8        // dst_ptr
+    cbz     w22, .L_dispatch
+    cbz     w23, .L_dispatch
+    ptrue   p0.s
+    cntw    x9                     // 16
+    lsl     x16, x24, #2           // stride in bytes (stride * 4)
+    mov     x17, x8                // save src base
+    // ── Outer loop: 16 columns at a time ──
+    mov     w10, #0                // col offset
+.L_rcs_col:
+    cmp     w10, w23
+    b.ge    .L_rcs_done
+    // Zero accumulator
+    fmov    z0.s, #0.0
+    // Compute column predicate for edge case (last group may have < 16 cols)
+    sub     w12, w23, w10          // remaining cols
+    whilelt p1.s, xzr, x12
+    // Row base = src + col_offset * 4
+    add     x8, x17, x10, lsl #2
+    mov     w12, w22               // row counter
+    // ── Inner loop: sum down M rows ──
+.L_rcs_row:
+    ld1w    {z1.s}, p1/z, [x8]
+    fadd    z0.s, p1/m, z0.s, z1.s
+    add     x8, x8, x16           // advance by stride bytes to next row
+    subs    w12, w12, #1
+    b.ne    .L_rcs_row
+    // Store 16-column partial sum
+    st1w    {z0.s}, p1, [x11]
+    add     x11, x11, x9, lsl #2  // dst += 16 floats
+    add     w10, w10, w9           // col += 16
+    b       .L_rcs_col
+.L_rcs_done:
+    b       .L_dispatch
+// ================================================================
+// EXP POLYNOMIAL MACRO — shared by silu_backward, gelu, adam, etc.
+// Expects input in z0, clobbers z1-z6. Result in z4.
+// Polynomial constants must be pre-loaded:
+//   z28 = log2(e), z29 = c4, z30 = c3, z31 = c2, z27 = c1=ln(2), z26 = 1.0
+// ================================================================
+.macro EXP_POLY_Z0_TO_Z4
+    fmul    z1.s, z0.s, z28.s      // x * log2(e)
+    frintm  z2.s, p0/m, z1.s       // n = floor
+    fsub    z3.s, z1.s, z2.s        // frac
+    fmul    z4.s, z29.s, z3.s       // c4*f
+    fadd    z4.s, z4.s, z30.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z31.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z27.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z26.s       // poly(frac)
+    fcvtzs  z5.s, p0/m, z2.s
+    mov     z6.s, #-127
+    smax    z5.s, p0/m, z5.s, z6.s
+    add     z5.s, z5.s, #127
+    lsl     z5.s, z5.s, #23         // 2^n as IEEE bits
+    fmul    z4.s, z4.s, z5.s        // z4 = exp(z0)
+.endm
+// ================================================================
+// SIGMOID MACRO — computes sigmoid(z7) into z5, clobbers z0-z6.
+// Requires exp polynomial constants in z26-z31, z27, z28.
+// ================================================================
+.macro SIGMOID_Z7_TO_Z5
+    fneg    z0.s, p0/m, z7.s       // -x
+    EXP_POLY_Z0_TO_Z4              // z4 = exp(-x)
+    fadd    z4.s, z4.s, z26.s       // 1 + exp(-x)
+    frecpe  z5.s, z4.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s  // z5 = sigmoid(x) = 1/(1+exp(-x))
+.endm
+// ================================================================
+// LOAD_EXP_CONSTANTS MACRO — loads polynomial constants into z26-z31, z27, z28
+// ================================================================
+.macro LOAD_EXP_CONSTANTS
+    movz    w4, #0x3FB8, lsl #16
+    movk    w4, #0xAA3B
+    fmov    s28, w4
+    mov     z28.s, s28              // log2(e)
+    movz    w4, #0x3C1D, lsl #16
+    movk    w4, #0x955A
+    fmov    s29, w4
+    mov     z29.s, s29              // c4
+    movz    w4, #0x3D63, lsl #16
+    movk    w4, #0x5847
+    fmov    s30, w4
+    mov     z30.s, s30              // c3
+    movz    w4, #0x3E75, lsl #16
+    movk    w4, #0xFDF0
+    fmov    s31, w4
+    mov     z31.s, s31              // c2
+    movz    w4, #0x3F31, lsl #16
+    movk    w4, #0x7218
+    fmov    s27, w4
+    mov     z27.s, s27              // c1 = ln(2)
+    fmov    z26.s, #1.0             // c0
+.endm
+// ================================================================
+// SILU_BACKWARD_FP32 (0x69) — SiLU backward pass
+// dx = dy * sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+//    = dy * (sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x)))
+//
+// Encoding: [0x69][dim:u32][x_ptr:u64][dy_ptr:u64][dx_ptr:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_silu_backward_fp32:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // x_ptr (forward input)
+    ldr     x11, [x19], #8        // dy_ptr (upstream gradient)
+    ldr     x13, [x19], #8        // dx_ptr (output gradient)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    LOAD_EXP_CONSTANTS
+    mov     w10, w22
+.L_silub_loop:
+    ld1w    {z7.s}, p0/z, [x8]    // z7 = x
+    SIGMOID_Z7_TO_Z5               // z5 = sigmoid(x)
+    // z5 = sigmoid(x), z7 = x
+    // dx = dy * (sigmoid + x * sigmoid * (1 - sigmoid))
+    mov     z0.d, z26.d             // z0 = 1.0
+    fsub    z0.s, z0.s, z5.s       // z0 = 1 - sigmoid
+    fmul    z0.s, z0.s, z5.s       // z0 = sigmoid * (1 - sigmoid)
+    fmul    z0.s, z0.s, z7.s       // z0 = x * sigmoid * (1 - sigmoid)
+    fadd    z0.s, z0.s, z5.s       // z0 = sigmoid + x * sigmoid * (1 - sigmoid)
+    ld1w    {z1.s}, p0/z, [x11]   // z1 = dy
+    fmul    z0.s, z0.s, z1.s       // z0 = dy * derivative
+    st1w    {z0.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_silub_loop
+    b       .L_dispatch
+// ================================================================
+// SOFTMAX_BACKWARD_FP32 (0x6A) — Softmax backward pass
+// dx[i] = s[i] * (dy[i] - sum(s[j]*dy[j]))
+//
+// Two-pass:
+//   Pass 1: dot = sum(s[i] * dy[i])
+//   Pass 2: dx[i] = s[i] * (dy[i] - dot)
+//
+// Encoding: [0x6A][dim:u32][s_ptr:u64][dy_ptr:u64][dx_ptr:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_softmax_backward_fp32:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // s_ptr (softmax output from forward)
+    ldr     x11, [x19], #8        // dy_ptr (upstream gradient)
+    ldr     x13, [x19], #8        // dx_ptr (output gradient)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    // ── Pass 1: dot = sum(s * dy) ──
+    fmov    z16.s, #0.0            // accumulator
+    mov     x14, x8                // save s_ptr
+    mov     x15, x11               // save dy_ptr
+    mov     w10, w22
+.L_smb_dot:
+    ld1w    {z0.s}, p0/z, [x8]
+    ld1w    {z1.s}, p0/z, [x11]
+    fmla    z16.s, p0/m, z0.s, z1.s
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_smb_dot
+    faddv   s16, p0, z16.s
+    mov     z16.s, s16              // broadcast dot product
+    // ── Pass 2: dx = s * (dy - dot) ──
+    mov     x8, x14
+    mov     x11, x15
+    mov     w10, w22
+.L_smb_grad:
+    ld1w    {z0.s}, p0/z, [x8]    // s
+    ld1w    {z1.s}, p0/z, [x11]   // dy
+    fsub    z1.s, z1.s, z16.s      // dy - dot
+    fmul    z0.s, z0.s, z1.s       // s * (dy - dot)
+    st1w    {z0.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_smb_grad
+    b       .L_dispatch
+// ================================================================
+// GELU_FP32 (0x6B) — GeLU activation (tanh approximation)
+// out = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+//
+// tanh(z) = 1 - 2/(1 + exp(2z)), computed via exp polynomial + reciprocal.
+//
+// Encoding: [0x6B][count:u32][in_ptr:u64][out_ptr:u64]
+// count must be a multiple of 16.
+// ================================================================
+.L_op_gelu_fp32:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // output_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    LOAD_EXP_CONSTANTS
+    // GeLU constants
+    movz    w4, #0x3F4C, lsl #16
+    movk    w4, #0x422A
+    fmov    s16, w4
+    mov     z16.s, s16              // sqrt(2/pi) = 0.7978845608
+    movz    w4, #0x3D37, lsl #16
+    movk    w4, #0x2713
+    fmov    s17, w4
+    mov     z17.s, s17              // 0.044715
+    fmov    z18.s, #0.5             // 0.5
+    fmov    z19.s, #2.0             // 2.0
+    mov     w10, w22
+.L_gelu_loop:
+    ld1w    {z7.s}, p0/z, [x8]    // z7 = x
+    // inner = sqrt(2/pi) * (x + 0.044715 * x^3)
+    fmul    z0.s, z7.s, z7.s       // x^2
+    fmul    z0.s, z0.s, z7.s       // x^3
+    fmul    z0.s, z0.s, z17.s      // 0.044715 * x^3
+    fadd    z0.s, z0.s, z7.s       // x + 0.044715 * x^3
+    fmul    z0.s, z0.s, z16.s      // inner = sqrt(2/pi) * (...)
+    // tanh(inner) = 1 - 2/(1 + exp(2*inner))
+    fmul    z0.s, z0.s, z19.s      // 2 * inner
+    EXP_POLY_Z0_TO_Z4              // z4 = exp(2*inner)
+    fadd    z4.s, z4.s, z26.s       // 1 + exp(2*inner)
+    frecpe  z5.s, z4.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s  // z5 = 1/(1+exp(2*inner))
+    fmul    z5.s, z5.s, z19.s      // 2/(1+exp(2*inner))
+    fsub    z5.s, z26.s, z5.s      // tanh = 1 - 2/(1+exp(2*inner))
+    // out = 0.5 * x * (1 + tanh)
+    fadd    z5.s, z5.s, z26.s       // 1 + tanh
+    fmul    z5.s, z5.s, z7.s       // x * (1 + tanh)
+    fmul    z5.s, z5.s, z18.s      // 0.5 * x * (1 + tanh)
+    st1w    {z5.s}, p0, [x11]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_gelu_loop
+    b       .L_dispatch
+// ================================================================
+// LAYER_NORM_FP32 (0x6C) — Full layer normalization
+// out[i] = ((x[i] - mean) / sqrt(var + eps)) * gamma[i] + beta[i]
+//
+// Two-pass:
+//   Pass 1: compute mean and variance (Welford online)
+//   Pass 2: normalize, scale by gamma, add beta
+//
+// Encoding: [0x6C][dim:u32][eps:f32][in_ptr:u64][gamma_ptr:u64][beta_ptr:u64][out_ptr:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_layer_norm_fp32:
+    ldr     w22, [x19]             // dim
+    ldr     s20, [x19, #4]        // eps
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // in_ptr
+    ldr     x11, [x19], #8        // gamma_ptr
+    ldr     x12, [x19], #8        // beta_ptr
+    ldr     x13, [x19], #8        // out_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    mov     x14, x8                // save in_ptr
+    // ── Pass 1: compute mean ──
+    fmov    z16.s, #0.0            // sum accumulator
+    mov     w10, w22
+.L_ln_sum:
+    ld1w    {z0.s}, p0/z, [x8]
+    fadd    z16.s, z16.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_ln_sum
+    faddv   s16, p0, z16.s         // total sum
+    ucvtf   s17, w22               // (float)dim
+    fdiv    s16, s16, s17           // mean = sum / dim
+    mov     z16.s, s16              // broadcast mean
+    // ── Pass 1b: compute variance ──
+    fmov    z17.s, #0.0            // var accumulator
+    mov     x8, x14
+    mov     w10, w22
+.L_ln_var:
+    ld1w    {z0.s}, p0/z, [x8]
+    fsub    z0.s, z0.s, z16.s      // x - mean
+    fmla    z17.s, p0/m, z0.s, z0.s // var += (x - mean)^2
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_ln_var
+    faddv   s17, p0, z17.s         // horizontal sum → var_sum scalar
+    ucvtf   s18, w22
+    fdiv    s17, s17, s18           // var = var_sum / dim
+    fadd    s17, s17, s20           // var + eps
+    fsqrt   s17, s17                // sqrt(var + eps)
+    fmov    s18, #1.0
+    fdiv    s17, s18, s17           // inv_std = 1 / sqrt(var + eps)
+    mov     z17.s, s17              // broadcast inv_std
+    // ── Pass 2: normalize, scale, shift ──
+    mov     x8, x14
+    mov     w10, w22
+.L_ln_norm:
+    ld1w    {z0.s}, p0/z, [x8]    // x
+    ld1w    {z1.s}, p0/z, [x11]   // gamma
+    ld1w    {z2.s}, p0/z, [x12]   // beta
+    fsub    z0.s, z0.s, z16.s      // x - mean
+    fmul    z0.s, z0.s, z17.s      // (x - mean) * inv_std
+    fmul    z0.s, z0.s, z1.s       // * gamma
+    fadd    z0.s, z0.s, z2.s       // + beta
+    st1w    {z0.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_ln_norm
+    b       .L_dispatch
+// ================================================================
+// CAUSAL_MASK_FP32 (0x6D) — Apply causal (lower-triangular) attention mask
+// For each position (i, j) where j > i: scores[i * stride + j] = -inf
+//
+// Encoding: [0x6D][dim:u32][stride:u32][ptr:u64]
+// dim = number of rows = number of columns (square attention matrix)
+// stride = row stride in fp32 elements
+// ================================================================
+.L_op_causal_mask_fp32:
+    ldr     w22, [x19]             // dim
+    ldr     w23, [x19, #4]        // stride
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsl     x16, x23, #2           // stride in bytes
+    movz    w4, #0xFF80, lsl #16   // -inf (0xFF800000)
+    fmov    s16, w4
+    mov     z16.s, s16              // z16 = broadcast(-inf)
+    // For row i: mask columns j where j > i
+    // i.e., starting from column i+1 through dim-1
+    mov     w10, #0                // row i
+.L_cm_row:
+    cmp     w10, w22
+    b.ge    .L_cm_done
+    add     w12, w10, #1           // first masked column = i + 1
+    cmp     w12, w22
+    b.ge    .L_cm_next_row         // row i has no columns to mask (last row)
+    // Address of scores[i][i+1]
+    mul     w14, w10, w23          // i * stride
+    add     w14, w14, w12          // + (i+1)
+    add     x11, x8, x14, lsl #2  // byte address
+    sub     w15, w22, w12          // count = dim - (i+1)
+    // Fill with -inf, 16 at a time
+.L_cm_fill:
+    cmp     w15, w9
+    b.lt    .L_cm_fill_tail
+    st1w    {z16.s}, p0, [x11]
+    add     x11, x11, x9, lsl #2
+    sub     w15, w15, w9
+    b       .L_cm_fill
+.L_cm_fill_tail:
+    cbz     w15, .L_cm_next_row
+    whilelt p1.s, xzr, x15
+    st1w    {z16.s}, p1, [x11]
+.L_cm_next_row:
+    add     w10, w10, #1
+    b       .L_cm_row
+.L_cm_done:
+    b       .L_dispatch
+// ================================================================
+// ADAM_STEP_FP32 (0x6E) — Fused Adam optimizer step
+// Single pass over params, grads, m (1st moment), v (2nd moment):
+//   m[i] = beta1 * m[i] + (1-beta1) * g[i]
+//   v[i] = beta2 * v[i] + (1-beta2) * g[i]^2
+//   m_hat = m[i] / (1 - beta1^t)
+//   v_hat = v[i] / (1 - beta2^t)
+//   params[i] -= lr * m_hat / (sqrt(v_hat) + eps)
+//
+// Encoding: [0x6E][count:u32][lr:f32][beta1:f32][beta2:f32][eps:f32][t:u32]
+//           [params_ptr:u64][grads_ptr:u64][m_ptr:u64][v_ptr:u64]
+// count must be a multiple of 16. t = current timestep (1-based).
+// ================================================================
+.L_op_adam_step_fp32:
+    ldr     w22, [x19]             // count
+    ldr     s20, [x19, #4]        // lr
+    ldr     s21, [x19, #8]        // beta1
+    ldr     s22, [x19, #12]       // beta2
+    ldr     s23, [x19, #16]       // eps
+    ldr     w24, [x19, #20]       // t (timestep)
+    add     x19, x19, #24
+    ldr     x8, [x19], #8         // params_ptr
+    ldr     x11, [x19], #8        // grads_ptr
+    ldr     x12, [x19], #8        // m_ptr
+    ldr     x13, [x19], #8        // v_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    // ── Pre-compute bias-corrected lr scalars via exp(t*ln(beta)) ──
+    // Both beta1^t and beta2^t computed in parallel via z-vectors
+    LOAD_EXP_CONSTANTS
+    ucvtf   s1, w24                 // s1 = (float)t
+    // ln(beta) via vector pipeline: broadcast scalar, extract exponent, minimax cubic
+    // Process both beta1 and beta2 in z-vector lane 0 and lane 1
+    mov     z0.s, s21               // broadcast beta1 into z0 (only lane 0 matters)
+    mov     z8.s, s22               // broadcast beta2 into z8
+    // ln(z0) → z0, ln(z8) → z8 via shared LN sequence
+    // z0 = beta1, z8 = beta2. Compute ln of each using lane 0.
+    // Extract exponent: reinterpret as int, extract bits 23..30
+    // Use integer operations on z-vector lanes
+    lsr     z1.s, z0.s, #23        // shift exponent to low bits
+    and     z1.s, z1.s, #0xFF      // mask 8-bit exponent
+    mov     z2.s, #127
+    sub     z1.s, z1.s, z2.s       // unbiased exponent
+    scvtf   z1.s, p0/m, z1.s       // e as float
+    // Set exponent to 127 (mantissa in [1,2))
+    mov     z3.d, z0.d
+    and     z3.s, z3.s, #0x007FFFFF // extract mantissa bits
+    orr     z3.s, z3.s, #0x3F800000 // set exponent = 127 → value in [1,2)
+    fsub    z3.s, z3.s, z26.s      // t = m - 1
+    // Minimax cubic: ln(1+t) ≈ a3*t^3 + a2*t^2 + a1*t
+    movz    w4, #0x3E94, lsl #16
+    movk    w4, #0x3014
+    fmov    s9, w4
+    mov     z9.s, s9                // a3 = 0.28947478
+    movz    w4, #0xBEFB, lsl #16
+    movk    w4, #0xD464
+    fmov    s10, w4
+    mov     z10.s, s10              // a2 = -0.49190896
+    movz    w4, #0x3F7F, lsl #16
+    movk    w4, #0xF972
+    fmov    s11, w4
+    mov     z11.s, s11              // a1 = 0.99949556
+    fmul    z4.s, z9.s, z3.s       // a3*t
+    fadd    z4.s, z4.s, z10.s      // + a2
+    fmul    z4.s, z4.s, z3.s       // (a3*t+a2)*t
+    fadd    z4.s, z4.s, z11.s      // + a1
+    fmul    z4.s, z4.s, z3.s       // ln(m)
+    fmul    z1.s, z1.s, z27.s      // e * ln(2) (z27 = ln(2) from LOAD_EXP_CONSTANTS)
+    fadd    z0.s, z1.s, z4.s       // z0 = ln(beta1)
+    // Same for beta2
+    lsr     z1.s, z8.s, #23
+    and     z1.s, z1.s, #0xFF
+    sub     z1.s, z1.s, z2.s
+    scvtf   z1.s, p0/m, z1.s
+    mov     z3.d, z8.d
+    and     z3.s, z3.s, #0x007FFFFF
+    orr     z3.s, z3.s, #0x3F800000
+    fsub    z3.s, z3.s, z26.s
+    fmul    z4.s, z9.s, z3.s
+    fadd    z4.s, z4.s, z10.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z11.s
+    fmul    z4.s, z4.s, z3.s
+    fmul    z1.s, z1.s, z27.s
+    fadd    z8.s, z1.s, z4.s       // z8 = ln(beta2)
+    // t * ln(beta) → exp
+    mov     z1.s, s1               // broadcast t
+    fmul    z0.s, z0.s, z1.s       // t * ln(beta1)
+    EXP_POLY_Z0_TO_Z4              // z4 = beta1^t
+    fmov    s3, s4                  // s3 = beta1^t (lane 0)
+    mov     z0.d, z8.d             // z0 = t * ln(beta2)
+    fmul    z0.s, z0.s, z1.s
+    EXP_POLY_Z0_TO_Z4              // z4 = beta2^t
+    // s4 already has beta2^t in lane 0
+    fmov    s0, #1.0
+    fsub    s3, s0, s3             // bc1 = 1 - beta1^t
+    fsub    s4, s0, s4             // bc2 = 1 - beta2^t
+    fdiv    s5, s20, s3            // lr_bc = lr / bc1
+    fsqrt   s6, s4                 // sqrt(bc2)  (for v_hat correction)
+    // Broadcast constants to z-vectors
+    mov     z16.s, s21              // beta1
+    fmov    s7, #1.0
+    fsub    s7, s7, s21
+    mov     z17.s, s7               // 1 - beta1
+    mov     z18.s, s22              // beta2
+    fmov    s7, #1.0
+    fsub    s7, s7, s22
+    mov     z19.s, s7               // 1 - beta2
+    mov     z20.s, s5               // lr / (1 - beta1^t)
+    mov     z21.s, s23              // eps
+    fdiv    s6, s0, s6             // 1/sqrt(bc2)
+    mov     z22.s, s6               // 1/sqrt(1 - beta2^t) for v_hat correction
+    mov     w10, w22
+.L_adam_loop:
+    ld1w    {z0.s}, p0/z, [x12]   // m
+    ld1w    {z1.s}, p0/z, [x13]   // v
+    ld1w    {z2.s}, p0/z, [x11]   // g
+    ld1w    {z3.s}, p0/z, [x8]    // params
+    // m = beta1 * m + (1 - beta1) * g
+    fmul    z0.s, z0.s, z16.s      // beta1 * m
+    fmla    z0.s, p0/m, z17.s, z2.s // + (1-beta1) * g
+    // v = beta2 * v + (1 - beta2) * g^2
+    fmul    z1.s, z1.s, z18.s      // beta2 * v
+    fmul    z4.s, z2.s, z2.s       // g^2
+    fmla    z1.s, p0/m, z19.s, z4.s // + (1-beta2) * g^2
+    // Store updated m, v
+    st1w    {z0.s}, p0, [x12]
+    st1w    {z1.s}, p0, [x13]
+    // v_hat = v / (1 - beta2^t) → multiply by 1/(1-beta2^t) pre-corrected via sqrt
+    // update = lr_bc * m / (sqrt(v_hat) + eps)
+    //        = (lr/(1-b1^t)) * m / (sqrt(v/(1-b2^t)) + eps)
+    fmul    z4.s, z1.s, z22.s      // v * (1/sqrt(1-b2^t))^2 = v/(1-b2^t) ... no
+    // Simpler: sqrt(v) * (1/sqrt(1-b2^t)) = sqrt(v/(1-b2^t)) = sqrt(v_hat)
+    fsqrt   z4.s, p0/m, z1.s       // sqrt(v)
+    fmul    z4.s, z4.s, z22.s      // sqrt(v) / sqrt(1-b2^t) = sqrt(v_hat)
+    fadd    z4.s, z4.s, z21.s      // sqrt(v_hat) + eps
+    frecpe  z5.s, z4.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s  // 1 / (sqrt(v_hat) + eps)
+    fmul    z5.s, z5.s, z0.s       // m / (sqrt(v_hat) + eps)
+    fmul    z5.s, z5.s, z20.s      // lr_bc * m / (sqrt(v_hat) + eps)
+    fsub    z3.s, z3.s, z5.s       // params -= update
+    st1w    {z3.s}, p0, [x8]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_adam_loop
+    b       .L_dispatch
+// ================================================================
+// GELU_BACKWARD_FP32 (0x6F) — GeLU backward pass
+// gelu(x) = 0.5*x*(1+tanh(inner)) where inner = sqrt(2/pi)*(x+0.044715*x^3)
+// gelu'(x) = 0.5*(1+tanh) + 0.5*x*(1-tanh^2)*sqrt(2/pi)*(1+3*0.044715*x^2)
+// dx = dy * gelu'(x)
+//
+// Encoding: [0x6F][dim:u32][x_ptr:u64][dy_ptr:u64][dx_ptr:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_gelu_backward_fp32:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // x_ptr
+    ldr     x11, [x19], #8        // dy_ptr
+    ldr     x13, [x19], #8        // dx_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    LOAD_EXP_CONSTANTS
+    movz    w4, #0x3F4C, lsl #16
+    movk    w4, #0x422A
+    fmov    s16, w4
+    mov     z16.s, s16              // sqrt(2/pi)
+    movz    w4, #0x3D37, lsl #16
+    movk    w4, #0x2713
+    fmov    s17, w4
+    mov     z17.s, s17              // 0.044715
+    fmov    z18.s, #0.5
+    fmov    z19.s, #2.0
+    // 3 * 0.044715 = 0.134145
+    movz    w4, #0x3E09, lsl #16
+    movk    w4, #0x7B42
+    fmov    s20, w4
+    mov     z20.s, s20              // 0.134145
+    mov     w10, w22
+.L_gelub_loop:
+    ld1w    {z7.s}, p0/z, [x8]    // z7 = x
+    // inner = sqrt(2/pi) * (x + 0.044715 * x^3)
+    fmul    z0.s, z7.s, z7.s       // x^2
+    fmul    z1.s, z0.s, z7.s       // x^3
+    fmul    z1.s, z1.s, z17.s      // 0.044715 * x^3
+    fadd    z1.s, z1.s, z7.s       // x + 0.044715 * x^3
+    fmul    z1.s, z1.s, z16.s      // inner
+    // tanh(inner) = 1 - 2/(1 + exp(2*inner))
+    fmul    z2.s, z1.s, z19.s      // 2 * inner
+    mov     z0.d, z2.d
+    EXP_POLY_Z0_TO_Z4              // z4 = exp(2*inner)
+    fadd    z4.s, z4.s, z26.s       // 1 + exp(2*inner)
+    frecpe  z5.s, z4.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s
+    frecps  z6.s, z4.s, z5.s
+    fmul    z5.s, p0/m, z5.s, z6.s  // z5 = 1/(1+exp(2*inner))
+    fmul    z5.s, z5.s, z19.s      // 2/(1+exp(2*inner))
+    fsub    z3.s, z26.s, z5.s      // z3 = tanh(inner)
+    // gelu'(x) = 0.5*(1+tanh) + 0.5*x*(1-tanh^2)*sqrt(2/pi)*(1+0.134145*x^2)
+    fmul    z4.s, z3.s, z3.s       // tanh^2
+    fsub    z4.s, z26.s, z4.s      // 1 - tanh^2 = sech^2
+    fmul    z5.s, z7.s, z7.s       // x^2
+    fmul    z5.s, z5.s, z20.s      // 0.134145 * x^2
+    fadd    z5.s, z5.s, z26.s      // 1 + 0.134145 * x^2
+    fmul    z5.s, z5.s, z16.s      // sqrt(2/pi) * (1 + 0.134145*x^2)
+    fmul    z5.s, z5.s, z4.s       // sech^2 * sqrt(2/pi) * (1+...)
+    fmul    z5.s, z5.s, z7.s       // x * sech^2 * sqrt(2/pi) * (1+...)
+    fmul    z5.s, z5.s, z18.s      // 0.5 * x * sech^2 * ...
+    fadd    z4.s, z3.s, z26.s      // 1 + tanh
+    fmul    z4.s, z4.s, z18.s      // 0.5 * (1 + tanh)
+    fadd    z4.s, z4.s, z5.s       // gelu'(x) = term1 + term2
+    ld1w    {z1.s}, p0/z, [x11]   // dy
+    fmul    z4.s, z4.s, z1.s       // dx = dy * gelu'(x)
+    st1w    {z4.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_gelub_loop
+    b       .L_dispatch
+// ================================================================
+// RMS_NORM_BACKWARD_FP32 (0x70) — RMS norm backward pass
+// Forward: y = x * inv_rms * w, where inv_rms = 1/sqrt(sum(x^2)/dim + eps)
+//
+// Gradients:
+//   dot = sum(dy * w * x)
+//   dx = inv_rms * (dy*w - x * dot * inv_rms^2 / dim)
+//   dw = dy * x * inv_rms
+//
+// Three passes: (1) sum(x^2), (2) dot=sum(dy*w*x), (3) dx and dw
+//
+// Encoding: [0x70][dim:u32][eps:f32][x:u64][w:u64][dy:u64][dx:u64][dw:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_rms_norm_backward_fp32:
+    ldr     w22, [x19]             // dim
+    ldr     s20, [x19, #4]        // eps
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // x_ptr
+    ldr     x11, [x19], #8        // w_ptr
+    ldr     x12, [x19], #8        // dy_ptr
+    ldr     x13, [x19], #8        // dx_ptr
+    ldr     x14, [x19], #8        // dw_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    mov     x15, x8                // save x_ptr
+    mov     x24, x11               // save w_ptr
+    mov     x16, x12               // save dy_ptr
+    // ── Pass 1: sum_sq = sum(x^2) ──
+    fmov    z16.s, #0.0
+    mov     w10, w22
+.L_rmsb_sumsq:
+    ld1w    {z0.s}, p0/z, [x8]
+    fmla    z16.s, p0/m, z0.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_rmsb_sumsq
+    faddv   s16, p0, z16.s         // sum_sq scalar
+    ucvtf   s17, w22
+    fdiv    s18, s16, s17           // sum_sq / dim
+    fadd    s18, s18, s20           // + eps
+    fsqrt   s18, s18                // sqrt(sum_sq/dim + eps) = rms
+    fmov    s19, #1.0
+    fdiv    s19, s19, s18           // inv_rms
+    // inv_rms^2 / dim = 1/(rms^2 * dim) = 1/((sum_sq/dim+eps)*dim)
+    fmul    s21, s18, s18           // rms^2
+    fmul    s21, s21, s17           // rms^2 * dim
+    fmov    s22, #1.0
+    fdiv    s21, s22, s21           // inv_rms^2 / dim
+    // ── Pass 2: dot = sum(dy * w * x) ──
+    fmov    z17.s, #0.0
+    mov     x8, x15
+    mov     x11, x24
+    mov     x12, x16
+    mov     w10, w22
+.L_rmsb_dot:
+    ld1w    {z0.s}, p0/z, [x12]   // dy
+    ld1w    {z1.s}, p0/z, [x11]   // w
+    ld1w    {z2.s}, p0/z, [x8]    // x
+    fmul    z0.s, z0.s, z1.s       // dy * w
+    fmla    z17.s, p0/m, z0.s, z2.s // += dy*w*x
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_rmsb_dot
+    faddv   s17, p0, z17.s         // dot scalar
+    fmul    s17, s17, s21           // dot * inv_rms^2 / dim
+    mov     z17.s, s17              // broadcast scale
+    mov     z19.s, s19              // broadcast inv_rms
+    // ── Pass 3: dx = inv_rms * (dy*w - x * dot_scale), dw = dy * x * inv_rms ──
+    mov     x8, x15
+    mov     x11, x24
+    mov     x12, x16
+    mov     w10, w22
+.L_rmsb_grad:
+    ld1w    {z0.s}, p0/z, [x12]   // dy
+    ld1w    {z1.s}, p0/z, [x11]   // w
+    ld1w    {z2.s}, p0/z, [x8]    // x
+    // dw = dy * x * inv_rms
+    fmul    z3.s, z0.s, z2.s       // dy * x
+    fmul    z3.s, z3.s, z19.s      // * inv_rms
+    st1w    {z3.s}, p0, [x14]
+    // dx = inv_rms * (dy*w - x * dot_scale)
+    fmul    z4.s, z0.s, z1.s       // dy * w
+    fmul    z5.s, z2.s, z17.s      // x * dot_scale
+    fsub    z4.s, z4.s, z5.s       // dy*w - x*dot_scale
+    fmul    z4.s, z4.s, z19.s      // * inv_rms
+    st1w    {z4.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    add     x14, x14, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_rmsb_grad
+    b       .L_dispatch
+// ================================================================
+// LAYER_NORM_BACKWARD_FP32 (0x71) — Layer norm backward pass
+// Forward: y = (x - mean) * inv_std * gamma + beta
+//
+// Gradients:
+//   dgamma[i] = dy[i] * x_hat[i]    where x_hat = (x - mean) * inv_std
+//   dbeta[i]  = dy[i]
+//   ds = sum(dy * gamma * x_hat) / dim
+//   dm = sum(dy * gamma) / dim
+//   dx[i] = inv_std * (dy[i] * gamma[i] - dm - x_hat[i] * ds)
+//
+// Four passes: (1) mean+var, (2) dgamma+dbeta+accum ds/dm, (3) dx
+//
+// Encoding: [0x71][dim:u32][eps:f32][x:u64][gamma:u64][dy:u64][dx:u64][dgamma:u64][dbeta:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_layer_norm_backward_fp32:
+    ldr     w22, [x19]
+    ldr     s20, [x19, #4]        // eps
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // x
+    ldr     x11, [x19], #8        // gamma
+    ldr     x12, [x19], #8        // dy
+    ldr     x13, [x19], #8        // dx
+    ldr     x14, [x19], #8        // dgamma
+    ldr     x15, [x19], #8        // dbeta
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    mov     x24, x8                // save x
+    mov     x16, x11               // save gamma
+    mov     x17, x12               // save dy
+    // ── Pass 1a: mean ──
+    fmov    z16.s, #0.0
+    mov     w10, w22
+.L_lnb_sum:
+    ld1w    {z0.s}, p0/z, [x8]
+    fadd    z16.s, z16.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_lnb_sum
+    faddv   s16, p0, z16.s
+    ucvtf   s17, w22
+    fdiv    s16, s16, s17           // mean
+    mov     z16.s, s16
+    // ── Pass 1b: var ──
+    fmov    z17.s, #0.0
+    mov     x8, x24
+    mov     w10, w22
+.L_lnb_var:
+    ld1w    {z0.s}, p0/z, [x8]
+    fsub    z0.s, z0.s, z16.s
+    fmla    z17.s, p0/m, z0.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_lnb_var
+    faddv   s17, p0, z17.s
+    ucvtf   s18, w22
+    fdiv    s17, s17, s18           // var
+    fadd    s17, s17, s20           // var + eps
+    fsqrt   s17, s17
+    fmov    s18, #1.0
+    fdiv    s17, s18, s17           // inv_std
+    mov     z17.s, s17              // broadcast inv_std
+    // ── Pass 2: dgamma, dbeta, accumulate ds and dm ──
+    fmov    z18.s, #0.0            // ds accumulator
+    fmov    z19.s, #0.0            // dm accumulator
+    mov     x8, x24
+    mov     x11, x16
+    mov     x12, x17
+    mov     w10, w22
+.L_lnb_dg:
+    ld1w    {z0.s}, p0/z, [x8]    // x
+    ld1w    {z1.s}, p0/z, [x11]   // gamma
+    ld1w    {z2.s}, p0/z, [x12]   // dy
+    // x_hat = (x - mean) * inv_std
+    fsub    z3.s, z0.s, z16.s
+    fmul    z3.s, z3.s, z17.s      // x_hat
+    // dgamma = dy * x_hat
+    fmul    z4.s, z2.s, z3.s
+    st1w    {z4.s}, p0, [x14]
+    // dbeta = dy
+    st1w    {z2.s}, p0, [x15]
+    // ds += dy * gamma * x_hat
+    fmul    z4.s, z2.s, z1.s       // dy * gamma
+    fmla    z18.s, p0/m, z4.s, z3.s // += dy*gamma*x_hat
+    // dm += dy * gamma
+    fadd    z19.s, z19.s, z4.s
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    add     x14, x14, x9, lsl #2
+    add     x15, x15, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_lnb_dg
+    faddv   s18, p0, z18.s         // ds total
+    ucvtf   s0, w22
+    fdiv    s18, s18, s0            // ds / dim
+    mov     z18.s, s18
+    faddv   s19, p0, z19.s         // dm total
+    fdiv    s19, s19, s0            // dm / dim
+    mov     z19.s, s19
+    // ── Pass 3: dx = inv_std * (dy*gamma - dm - x_hat*ds) ──
+    mov     x8, x24
+    mov     x11, x16
+    mov     x12, x17
+    mov     w10, w22
+.L_lnb_dx:
+    ld1w    {z0.s}, p0/z, [x8]    // x
+    ld1w    {z1.s}, p0/z, [x11]   // gamma
+    ld1w    {z2.s}, p0/z, [x12]   // dy
+    fsub    z3.s, z0.s, z16.s
+    fmul    z3.s, z3.s, z17.s      // x_hat
+    fmul    z4.s, z2.s, z1.s       // dy * gamma
+    fsub    z4.s, z4.s, z19.s      // - dm
+    fmul    z5.s, z3.s, z18.s      // x_hat * ds
+    fsub    z4.s, z4.s, z5.s       // dy*gamma - dm - x_hat*ds
+    fmul    z4.s, z4.s, z17.s      // * inv_std
+    st1w    {z4.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x12, x12, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_lnb_dx
+    b       .L_dispatch
+// ================================================================
+// ROPE_BACKWARD_FP32 (0x72) — RoPE inverse rotation
+// Same frequency computation as forward, but applies inverse rotation:
+//   dx_even = dy_even*cos + dy_odd*sin
+//   dx_odd  = -dy_even*sin + dy_odd*cos
+// Implemented by negating sin after computation.
+//
+// Encoding: [0x72][dim:u32][pos:u32][theta:f32][dy_ptr:u64][dx_ptr:u64]
+// ================================================================
+.L_op_rope_backward_fp32:
+    ldr     w22, [x19]
+    ldr     w23, [x19, #4]
+    ldr     w24, [x19, #8]
+    add     x19, x19, #12
+    ldr     x8, [x19], #8
+    ldr     x11, [x19], #8
+    lsr     w26, w22, #1
+    cbz     w26, .L_ropeb_done
+    ptrue   p0.s
+    cntw    x9
+    // ── Compute ratio = theta^(2/dim) (same as forward) ──
+    fmov    s0, w24
+    fmov    w4, s0
+    ubfx    w5, w4, #23, #8
+    sub     w5, w5, #127
+    scvtf   s1, w5
+    mov     w6, #127
+    bfi     w4, w6, #23, #8
+    fmov    s2, w4
+    fmov    s3, #1.0
+    fsub    s2, s2, s3
+    movz    w6, #0x3E94, lsl #16
+    movk    w6, #0x3014
+    fmov    s4, w6
+    movz    w6, #0xBEFB, lsl #16
+    movk    w6, #0xD464
+    fmov    s5, w6
+    movz    w6, #0x3F7F, lsl #16
+    movk    w6, #0xF972
+    fmov    s6, w6
+    fmul    s4, s4, s2
+    fadd    s4, s4, s5
+    fmul    s4, s4, s2
+    fadd    s4, s4, s6
+    fmul    s4, s4, s2
+    movz    w6, #0x3F31, lsl #16
+    movk    w6, #0x7218
+    fmov    s5, w6
+    fmul    s1, s1, s5
+    fadd    s1, s1, s4
+    fmov    s6, #2.0
+    ucvtf   s7, w22
+    fdiv    s6, s6, s7
+    fmul    s6, s6, s1
+    movz    w6, #0x3FB8, lsl #16
+    movk    w6, #0xAA3B
+    fmov    s10, w6
+    fmul    s7, s6, s10
+    frintm  s8, s7
+    fsub    s9, s7, s8
+    movz    w6, #0x3C1D, lsl #16
+    movk    w6, #0x955A
+    fmov    s12, w6
+    movz    w6, #0x3D63, lsl #16
+    movk    w6, #0x5847
+    fmov    s13, w6
+    movz    w6, #0x3E75, lsl #16
+    movk    w6, #0xFDF0
+    fmov    s14, w6
+    fmul    s15, s12, s9
+    fadd    s15, s15, s13
+    fmul    s15, s15, s9
+    fadd    s15, s15, s14
+    fmul    s15, s15, s9
+    movz    w6, #0x3F31, lsl #16
+    movk    w6, #0x7218
+    fmov    s14, w6
+    fadd    s15, s15, s14
+    fmul    s15, s15, s9
+    fmov    s14, #1.0
+    fadd    s15, s15, s14
+    fcvtzs  w6, s8
+    add     w6, w6, #127
+    lsl     w6, w6, #23
+    fmov    s14, w6
+    fmul    s0, s15, s14
+    // ── Build power vector ──
+    add     x14, sp, #128
+    fmov    s2, #1.0
+    mov     w12, #0
+.L_ropeb_pw:
+    cmp     w12, w9
+    b.ge    .L_ropeb_pw_done
+    str     s2, [x14, w12, uxtw #2]
+    fmul    s2, s2, s0
+    add     w12, w12, #1
+    b       .L_ropeb_pw
+.L_ropeb_pw_done:
+    ld1w    {z29.s}, p0/z, [x14]
+    mov     z30.s, s2
+    ucvtf   s3, w23
+    mov     z31.s, s3
+    // ── Trig constants ──
+    movz    w4, #0x4049, lsl #16
+    movk    w4, #0x0FDB
+    fmov    s16, w4
+    mov     z20.s, s16
+    movz    w4, #0x3EA2, lsl #16
+    movk    w4, #0xF983
+    fmov    s16, w4
+    mov     z21.s, s16
+    movz    w4, #0xBE2A, lsl #16
+    movk    w4, #0xAAAB
+    fmov    s16, w4
+    mov     z22.s, s16
+    movz    w4, #0x3C08, lsl #16
+    movk    w4, #0x8889
+    fmov    s16, w4
+    mov     z23.s, s16
+    movz    w4, #0xB950, lsl #16
+    movk    w4, #0x0D01
+    fmov    s16, w4
+    mov     z27.s, s16
+    movz    w4, #0xBF00, lsl #16
+    movk    w4, #0x0000
+    fmov    s16, w4
+    mov     z24.s, s16
+    movz    w4, #0x3D2A, lsl #16
+    movk    w4, #0xAAAB
+    fmov    s16, w4
+    mov     z25.s, s16
+    movz    w4, #0xBAB6, lsl #16
+    movk    w4, #0x0B61
+    fmov    s16, w4
+    mov     z28.s, s16
+    fmov    z26.s, #1.0
+    // ── Vectorized inverse rotation loop ──
+    mov     w12, #0
+    whilelt p1.s, w12, w26
+.L_ropeb_vec:
+    b.none  .L_ropeb_done
+    movprfx z0, z31
+    fdiv    z0.s, p1/m, z0.s, z29.s
+    fmul    z1.s, z0.s, z21.s
+    frintn  z1.s, p0/m, z1.s
+    fcvtzs  z7.s, p0/m, z1.s
+    fmls    z0.s, p0/m, z1.s, z20.s
+    and     z7.s, z7.s, #1
+    lsl     z7.s, z7.s, #31
+    fmul    z1.s, z0.s, z0.s
+    mov     z2.d, z27.d
+    fmad    z2.s, p0/m, z1.s, z23.s
+    fmad    z2.s, p0/m, z1.s, z22.s
+    fmad    z2.s, p0/m, z1.s, z26.s
+    fmul    z2.s, p0/m, z2.s, z0.s  // sin(r)
+    mov     z3.d, z28.d
+    fmad    z3.s, p0/m, z1.s, z25.s
+    fmad    z3.s, p0/m, z1.s, z24.s
+    fmad    z3.s, p0/m, z1.s, z26.s  // cos(r)
+    eor     z2.d, z2.d, z7.d
+    eor     z3.d, z3.d, z7.d
+    // ── BACKWARD: negate sin for inverse rotation ──
+    fneg    z2.s, p0/m, z2.s
+    // LD2W deinterleaves
+    ld2w    {z4.s, z5.s}, p1/z, [x8]
+    mov     z6.d, z4.d
+    fmul    z4.s, p0/m, z4.s, z3.s
+    fmls    z4.s, p0/m, z5.s, z2.s
+    fmul    z5.s, p0/m, z5.s, z3.s
+    fmla    z5.s, p0/m, z6.s, z2.s
+    st2w    {z4.s, z5.s}, p1, [x11]
+    add     x8, x8, x9, lsl #3
+    add     x11, x11, x9, lsl #3
+    fmul    z29.s, p0/m, z29.s, z30.s
+    add     w12, w12, w9
+    whilelt p1.s, w12, w26
+    b       .L_ropeb_vec
+.L_ropeb_done:
+    b       .L_dispatch
+// ================================================================
+// CROSS_ENTROPY_FP32 (0x73) — Cross-entropy loss + gradient
+// loss = -log(softmax(logits)[label])
+// grad[i] = softmax[i] - (i == label ? 1 : 0)
+//
+// Three passes: (1) find max, (2) exp + sum, (3) grad + loss
+//
+// Encoding: [0x73][dim:u32][label:u32][logits:u64][grad_out:u64][loss_out:u64]
+// dim must be a multiple of 16.
+// ================================================================
+.L_op_cross_entropy_fp32:
+    ldr     w22, [x19]             // dim
+    ldr     w23, [x19, #4]        // label (correct class index)
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // logits
+    ldr     x11, [x19], #8        // grad_out
+    ldr     x12, [x19], #8        // loss_out
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    LOAD_EXP_CONSTANTS
+    mov     x14, x8                // save logits
+    mov     x15, x11               // save grad_out
+    // ── Pass 1: find max ──
+    movz    w4, #0xFF80, lsl #16
+    fmov    s16, w4
+    mov     z16.s, s16
+    mov     w10, w22
+.L_ce_max:
+    ld1w    {z0.s}, p0/z, [x8]
+    fmax    z16.s, p0/m, z16.s, z0.s
+    add     x8, x8, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_ce_max
+    fmaxv   s16, p0, z16.s
+    mov     z16.s, s16              // broadcast max
+    // ── Pass 2: exp(logits - max), accumulate sum, store exp values ──
+    fmov    z17.s, #0.0            // sum accumulator
+    mov     x8, x14
+    mov     x11, x15
+    mov     w10, w22
+.L_ce_exp:
+    ld1w    {z0.s}, p0/z, [x8]
+    fsub    z0.s, z0.s, z16.s
+    EXP_POLY_Z0_TO_Z4
+    st1w    {z4.s}, p0, [x11]     // store exp for gradient
+    fadd    z17.s, z17.s, z4.s
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_ce_exp
+    faddv   s17, p0, z17.s         // total sum
+    // ── Compute loss = -log(exp[label]/sum) = log(sum) - (logits[label] - max) ──
+    // log(sum) via z-vector pipeline (lane 0 only)
+    mov     z0.s, s17              // broadcast sum into z0
+    lsr     z1.s, z0.s, #23
+    and     z1.s, z1.s, #0xFF
+    mov     z2.s, #127
+    sub     z1.s, z1.s, z2.s
+    scvtf   z1.s, p0/m, z1.s       // exponent as float
+    mov     z3.d, z0.d
+    and     z3.s, z3.s, #0x007FFFFF
+    orr     z3.s, z3.s, #0x3F800000
+    fsub    z3.s, z3.s, z26.s      // t = m - 1
+    movz    w4, #0x3E94, lsl #16
+    movk    w4, #0x3014
+    fmov    s8, w4
+    mov     z8.s, s8               // a3
+    movz    w4, #0xBEFB, lsl #16
+    movk    w4, #0xD464
+    fmov    s9, w4
+    mov     z9.s, s9               // a2
+    movz    w4, #0x3F7F, lsl #16
+    movk    w4, #0xF972
+    fmov    s10, w4
+    mov     z10.s, s10             // a1
+    fmul    z4.s, z8.s, z3.s
+    fadd    z4.s, z4.s, z9.s
+    fmul    z4.s, z4.s, z3.s
+    fadd    z4.s, z4.s, z10.s
+    fmul    z4.s, z4.s, z3.s       // ln(m)
+    fmul    z1.s, z1.s, z27.s      // e * ln(2)
+    fadd    z0.s, z1.s, z4.s       // log(sum)
+    fmov    s18, s0                // extract lane 0 → s18
+    // logits[label] - max
+    ldr     s19, [x14, w23, uxtw #2]  // logits[label]
+    fmov    w4, s16                 // max (from z16 lane 0)
+    fmov    s0, w4
+    fsub    s19, s19, s0            // logits[label] - max
+    fsub    s18, s18, s19           // loss = log(sum) - (logits[label] - max)
+    str     s18, [x12]             // store loss scalar
+    // ── Pass 3: grad = softmax - one_hot = exp/sum - delta ──
+    fmov    s18, #1.0
+    fdiv    s17, s18, s17           // 1/sum
+    mov     z17.s, s17              // broadcast 1/sum
+    mov     z18.s, w23              // broadcast label index
+    fmov    z19.s, #1.0
+    mov     x11, x15
+    mov     w10, #0                // element index
+.L_ce_grad:
+    cmp     w10, w22
+    b.ge    .L_ce_done
+    ld1w    {z0.s}, p0/z, [x11]   // stored exp values
+    fmul    z0.s, z0.s, z17.s      // softmax = exp / sum
+    // Subtract 1.0 at the label position using index compare
+    index   z1.s, w10, #1         // z1 = [w10, w10+1, ..., w10+15]
+    cmpeq   p1.s, p0/z, z1.s, z18.s // p1 set only at label lane
+    fsub    z0.s, p1/m, z0.s, z19.s // softmax[label] -= 1.0
+    st1w    {z0.s}, p0, [x11]
+    add     x11, x11, x9, lsl #2
+    add     w10, w10, w9
+    b       .L_ce_grad
+.L_ce_done:
+    b       .L_dispatch
+// ================================================================
+// ELEMENTWISE_SUB_FP32 (0x74) — out[i] = a[i] - b[i]
+//
+// Encoding: [0x74][count:u32][a_ptr:u64][b_ptr:u64][out_ptr:u64]
+// count must be a multiple of 16.
+// ================================================================
+.L_op_elementwise_sub_fp32:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // a_ptr
+    ldr     x11, [x19], #8        // b_ptr
+    ldr     x13, [x19], #8        // out_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    mov     w10, w22
+.L_esub_loop:
+    ld1w    {z0.s}, p0/z, [x8]
+    ld1w    {z1.s}, p0/z, [x11]
+    fsub    z0.s, z0.s, z1.s
+    st1w    {z0.s}, p0, [x13]
+    add     x8, x8, x9, lsl #2
+    add     x11, x11, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_esub_loop
+    b       .L_dispatch
+// ================================================================
+// Q4_K_GEMV (0x75) — Quantized GEMV for ggml Q4_K format
+//
+// Super-block: 256 values in 144 bytes:
+//   [d:fp16][dmin:fp16][scales:12 bytes][qs:128 bytes (4-bit packed)]
+// 8 sub-blocks of 32 values each. Each sub-block has a 6-bit scale and 6-bit min
+// packed into the 12-byte scales array.
+// Dequant: val = d * sc * (nibble) - dmin * m
+//
+// Encoding: [0x75][M:u32][K:u32][in:u64][W:u64][out:u64]
+// K must be a multiple of 256.
+// ================================================================
+.L_op_q4_k_gemv:
+    ldr     w22, [x19]             // M
+    add     x19, x19, #4
+    ldr     w23, [x19]             // K
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr (fp32)
+    ldr     x11, [x19], #8        // weights_ptr (Q4_K blocks)
+    ldr     x13, [x19], #8        // output_ptr (fp32)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9                     // 16
+    lsr     w24, w23, #8           // num_super_blocks = K / 256
+    mov     x17, x8                // save input base
+.L_q4k_row:
+    cbz     w22, .L_dispatch
+    mov     z4.d, #0               // accumulator
+    mov     x8, x17                // reset input ptr
+    mov     w10, w24               // super-block counter
+.L_q4k_sblock:
+    cbz     w10, .L_q4k_store
+    // Parse super-block header
+    ldr     h0, [x11]             // d (fp16)
+    ldr     h1, [x11, #2]         // dmin (fp16)
+    fcvt    s0, h0                // d as fp32
+    fcvt    s1, h1                // dmin as fp32
+    fneg    s1, s1                // -dmin (pre-negate for fmla)
+    add     x14, x11, #4          // &scales[0] (12 bytes)
+    add     x15, x11, #16         // &qs[0] (128 bytes of 4-bit packed)
+    // Process 8 sub-blocks of 32 values each
+    mov     w12, #0               // sub-block index
+.L_q4k_sub:
+    cmp     w12, #8
+    b.ge    .L_q4k_sblock_next
+    // Extract 6-bit scale and min for this sub-block from the packed 12-byte array
+    // scales layout: sc[0..3] in low 6 bits of bytes 0..3, m[0..3] in low 6 bits of bytes 4..7
+    // sc[4..7] in low 4 bits of bytes 8..11, m[4..7] in high 4 bits of bytes 8..11
+    // combined with high 2 bits from bytes 0..7
+    // Simplified: for sub-block j<4: sc = scales[j] & 0x3F, m = scales[j+4] & 0x3F
+    //             for sub-block j>=4: sc = (scales[j+4]&0xF) | ((scales[j-4]>>6)<<4)
+    //                                  m = (scales[j+4]>>4)  | ((scales[j]>>6)<<4)
+    cmp     w12, #4
+    b.ge    .L_q4k_scale_hi
+    // Low 4 sub-blocks: simple 6-bit extraction
+    ldrb    w3, [x14, w12, uxtw]       // scales[j]
+    and     w3, w3, #0x3F              // sc = low 6 bits
+    add     w5, w12, #4
+    ldrb    w6, [x14, w5, uxtw]        // scales[j+4]
+    and     w6, w6, #0x3F              // m = low 6 bits
+    b       .L_q4k_scale_done
+.L_q4k_scale_hi:
+    // High 4 sub-blocks: reconstruct from split fields
+    sub     w5, w12, #4                 // j-4
+    add     w7, w12, #4                 // j+4 (index 8..11)
+    ldrb    w3, [x14, w7, uxtw]        // scales[j+4]
+    ldrb    w6, [x14, w5, uxtw]        // scales[j-4]
+    and     w16, w3, #0x0F             // low 4 bits of scales[j+4]
+    lsr     w6, w6, #6                 // high 2 bits of scales[j-4]
+    orr     w3, w16, w6, lsl #4        // sc = low4 | (high2 << 4)
+    ldrb    w6, [x14, w12, uxtw]       // scales[j]
+    lsr     w16, w3, #4                // high 4 bits of scales[j+4] (wait, reread)
+    // Actually: m = (scales[j+4]>>4) | ((scales[j]>>6)<<4)
+    ldrb    w16, [x14, w7, uxtw]       // re-read scales[j+4]
+    lsr     w16, w16, #4               // high nibble
+    lsr     w6, w6, #6                 // high 2 bits of scales[j]
+    orr     w6, w16, w6, lsl #4        // m = high4 | (high2 << 4)
+.L_q4k_scale_done:
+    // w3 = sc (6-bit scale), w6 = m (6-bit min)
+    // Compute d_sc = d * sc, dmin_m = -dmin * m
+    ucvtf   s2, w3                 // (float)sc
+    fmul    s2, s0, s2             // d * sc
+    mov     z16.s, s2              // broadcast d*sc
+    ucvtf   s3, w6                 // (float)m
+    fmul    s3, s1, s3             // -dmin * m
+    mov     z17.s, s3              // broadcast -dmin*m
+    // Load 32 packed 4-bit quants (16 bytes) for this sub-block
+    // Each byte has low nibble = element 2i, high nibble = element 2i+1
+    // Sub-block j starts at qs[j*16]
+    lsl     w5, w12, #4            // j * 16
+    add     x16, x15, x5           // &qs[j*16]
+    // First 16 values: low nibbles
+    ld1b    {z0.s}, p0/z, [x16]   // load 16 bytes, zero-extend to 32-bit
+    mov     z2.d, z0.d
+    and     z2.s, z2.s, #0x0F     // low nibble
+    ucvtf   z2.s, p0/m, z2.s      // to float
+    fmul    z2.s, z2.s, z16.s     // * d*sc
+    fadd    z2.s, z2.s, z17.s     // + (-dmin*m)
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z2.s, z1.s
+    add     x8, x8, #64
+    // Next 16 values: high nibbles
+    lsr     z3.s, z0.s, #4
+    and     z3.s, z3.s, #0x0F
+    ucvtf   z3.s, p0/m, z3.s
+    fmul    z3.s, z3.s, z16.s
+    fadd    z3.s, z3.s, z17.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z3.s, z1.s
+    add     x8, x8, #64
+    add     w12, w12, #1
+    b       .L_q4k_sub
+.L_q4k_sblock_next:
+    add     x11, x11, #144        // advance to next super-block
+    sub     w10, w10, #1
+    b       .L_q4k_sblock
+.L_q4k_store:
+    faddv   s4, p0, z4.s
+    str     s4, [x13], #4
+    sub     w22, w22, #1
+    b       .L_q4k_row
+// ================================================================
+// Q2_K_GEMV (0x76) — Quantized GEMV for ggml Q2_K format
+//
+// Super-block: 256 values in 84 bytes:
+//   [scales:16 bytes (4-bit sc + 4-bit m per sub-block)]
+//   [qs:64 bytes (2-bit packed, 4 per byte)]
+//   [d:fp16][dmin:fp16]
+// 16 sub-blocks of 16 values each.
+// Dequant: val = d * (sc & 0xF) * q - dmin * (sc >> 4)
+//
+// Encoding: [0x76][M:u32][K:u32][in:u64][W:u64][out:u64]
+// K must be a multiple of 256.
+// ================================================================
+.L_op_q2_k_gemv:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     w23, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8         // input_ptr
+    ldr     x11, [x19], #8        // weights_ptr
+    ldr     x13, [x19], #8        // output_ptr
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #8           // num_super_blocks = K / 256
+    mov     x17, x8
+.L_q2k_row:
+    cbz     w22, .L_dispatch
+    mov     z4.d, #0
+    mov     x8, x17
+    mov     w10, w24
+.L_q2k_sblock:
+    cbz     w10, .L_q2k_store
+    // Q2_K layout: scales[16], qs[64], d(fp16), dmin(fp16)
+    add     x14, x11, #0          // &scales[0]
+    add     x15, x11, #16         // &qs[0]
+    ldr     h0, [x11, #80]        // d
+    ldr     h1, [x11, #82]        // dmin
+    fcvt    s0, h0
+    fcvt    s1, h1
+    fneg    s1, s1
+    // 16 sub-blocks of 16 values, each uses 4 bytes of qs (4 values per byte × 4 bytes)
+    mov     w12, #0
+.L_q2k_sub:
+    cmp     w12, #16
+    b.ge    .L_q2k_sblock_next
+    // Extract scale and min from scales[j]: low nibble = sc, high nibble = m
+    ldrb    w3, [x14, w12, uxtw]
+    and     w5, w3, #0x0F          // sc
+    lsr     w6, w3, #4             // m
+    ucvtf   s2, w5
+    fmul    s2, s0, s2             // d * sc
+    mov     z16.s, s2
+    ucvtf   s3, w6
+    fmul    s3, s1, s3             // -dmin * m
+    mov     z17.s, s3
+    // Load 4 bytes of 2-bit quants (16 values) for this sub-block
+    lsl     w5, w12, #2            // j * 4
+    add     x16, x15, x5
+    // Load 4 bytes into a GP register, extract 16 × 2-bit values
+    ldr     w3, [x16]              // 32 bits = 16 × 2-bit values
+    // Expand to 16 fp32 values on stack, then load as z-vector
+    // Use shifts to extract each pair of bits into z-vector lanes
+    // Strategy: load 4 bytes as z-vector, shift/mask to extract 2-bit fields
+    // Load the 4 bytes zero-extended into z0 lanes
+    ld1b    {z0.s}, p0/z, [x16]   // loads 16 bytes but only 4 are valid; 1 byte per lane
+    // But we need 16 values from 4 bytes (4 per byte). Different approach:
+    // Replicate each byte 4 times, then shift by {0,2,4,6} and mask
+    // Simpler: broadcast the 32-bit word, shift by lane-dependent amounts, mask
+    mov     z0.s, w3               // broadcast the 32-bit packed word
+    // Lane i extracts bits (2*i)..(2*i+1): shift right by 2*i, mask with 0x3
+    index   z1.s, #0, #2          // z1 = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+    lsr     z0.s, p0/m, z0.s, z1.s // shift each lane by its index*2
+    and     z0.s, z0.s, #0x3       // mask to 2 bits
+    ucvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s      // * d*sc
+    fadd    z0.s, z0.s, z17.s      // + (-dmin*m)
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z0.s, z1.s
+    add     x8, x8, #64
+    add     w12, w12, #1
+    b       .L_q2k_sub
+.L_q2k_sblock_next:
+    add     x11, x11, #84
+    sub     w10, w10, #1
+    b       .L_q2k_sblock
+.L_q2k_store:
+    faddv   s4, p0, z4.s
+    str     s4, [x13], #4
+    sub     w22, w22, #1
+    b       .L_q2k_row
+// ================================================================
+// Q3_K_GEMV (0x77) — Quantized GEMV for ggml Q3_K format
+//
+// Super-block: 256 values in 110 bytes:
+//   [hmask:32 bytes (high bits)][qs:64 bytes (low 2 bits packed)]
+//   [scales:12 bytes][d:fp16]
+// 3-bit quants: low 2 bits in qs, high 1 bit in hmask.
+// val = d * sc * (q3 - 4) where q3 = (qs_2bit | (hbit << 2)), range [0,7], centered at 4.
+//
+// Encoding: [0x77][M:u32][K:u32][in:u64][W:u64][out:u64]
+// K must be a multiple of 256.
+// ================================================================
+.L_op_q3_k_gemv:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     w23, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8
+    ldr     x11, [x19], #8
+    ldr     x13, [x19], #8
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #8
+    mov     x17, x8
+.L_q3k_row:
+    cbz     w22, .L_dispatch
+    mov     z4.d, #0
+    mov     x8, x17
+    mov     w10, w24
+.L_q3k_sblock:
+    cbz     w10, .L_q3k_store
+    // Q3_K layout: hmask[32], qs[64], scales[12], d(fp16)
+    add     x14, x11, #0          // &hmask[0]
+    add     x15, x11, #32         // &qs[0]
+    add     x16, x11, #96         // &scales[0]
+    ldr     h0, [x11, #108]       // d
+    fcvt    s0, h0
+    // 8 sub-blocks of 32 values each
+    mov     w12, #0
+.L_q3k_sub:
+    cmp     w12, #8
+    b.ge    .L_q3k_sblock_next
+    // Extract scale for this sub-block (same packed 6-bit format as Q4_K but simpler)
+    // For Q3_K, scales are stored as 6-bit signed values
+    // Sub-blocks 0-3: scales[j] & 0x3F, adjusted by high bits
+    // The scale extraction is complex; use simplified approach:
+    // scales are 32 values packed into 12 bytes, but for GEMV we treat them
+    // as 8 6-bit values. Lower 4: scales[j]&0x3F. Upper 4: reconstructed.
+    cmp     w12, #4
+    b.ge    .L_q3k_scale_hi
+    ldrb    w3, [x16, w12, uxtw]
+    and     w3, w3, #0x3F
+    b       .L_q3k_scale_done2
+.L_q3k_scale_hi:
+    sub     w5, w12, #4
+    add     w7, w12, #4
+    ldrb    w3, [x16, w7, uxtw]
+    and     w3, w3, #0x0F
+    ldrb    w6, [x16, w5, uxtw]
+    lsr     w6, w6, #6
+    orr     w3, w3, w6, lsl #4
+.L_q3k_scale_done2:
+    // Q3_K scales are centered: subtract 32 to get signed scale
+    sub     w3, w3, #32
+    scvtf   s2, w3
+    fmul    s2, s0, s2             // d * signed_scale
+    mov     z16.s, s2
+    // Load 2-bit quants: 8 bytes for 32 values (4 per byte)
+    lsl     w5, w12, #3            // j * 8
+    add     x3, x15, x5
+    // Process in two halves of 16
+    // First 16: bytes 0-3 of sub-block qs, each byte has 4×2-bit
+    ldr     w5, [x3]              // 4 bytes = 16 × 2-bit
+    mov     z0.s, w5
+    index   z1.s, #0, #2
+    lsr     z0.s, p0/m, z0.s, z1.s
+    and     z0.s, z0.s, #0x3
+    // Load high bits from hmask
+    // hmask is 32 bytes = 256 bits. Bit (j*32 + i) is the high bit for element j*32+i.
+    // For sub-block j, elements j*32..j*32+15: bits are at hmask byte positions
+    lsl     w5, w12, #2            // j * 4 (byte offset for first 16 bits in hmask, 2 bits per byte × 4 = 8... no)
+    // hmask bit layout: bit i of hmask corresponds to element i (sequential)
+    // sub-block j covers elements j*32..j*32+31
+    // hmask byte (j*32+i)/8, bit (j*32+i)%8
+    // For first 16 elements of sub-block j: elements j*32..j*32+15
+    // These span hmask bytes j*4..j*4+1 (16 bits = 2 bytes)
+    lsl     w5, w12, #2            // j * 4
+    ldrh    w6, [x14, w5, uxtw]   // 16 bits of hmask for first 16 elements
+    mov     z2.s, w6
+    index   z3.s, #0, #1
+    lsr     z2.s, p0/m, z2.s, z3.s
+    and     z2.s, z2.s, #0x1      // high bit per element
+    lsl     z2.s, z2.s, #2        // shift to bit position 2
+    orr     z0.s, z0.s, z2.s      // combine: q3 = low2 | (high1 << 2)
+    mov     z2.s, #4
+    sub     z0.s, z0.s, z2.s      // center: q3 - 4, range [-4, +3]
+    scvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z0.s, z1.s
+    add     x8, x8, #64
+    // Second 16 elements
+    ldr     w5, [x3, #4]          // next 4 bytes
+    mov     z0.s, w5
+    lsr     z0.s, p0/m, z0.s, z1.s // reuse z1 index? No, z1 was clobbered by input load
+    index   z1.s, #0, #2
+    lsr     z0.s, p0/m, z0.s, z1.s
+    and     z0.s, z0.s, #0x3
+    lsl     w5, w12, #2
+    add     w5, w5, #2             // offset +2 bytes for next 16 bits
+    ldrh    w6, [x14, w5, uxtw]
+    mov     z2.s, w6
+    index   z3.s, #0, #1
+    lsr     z2.s, p0/m, z2.s, z3.s
+    and     z2.s, z2.s, #0x1
+    lsl     z2.s, z2.s, #2
+    orr     z0.s, z0.s, z2.s
+    mov     z2.s, #4
+    sub     z0.s, z0.s, z2.s
+    scvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z0.s, z1.s
+    add     x8, x8, #64
+    add     w12, w12, #1
+    b       .L_q3k_sub
+.L_q3k_sblock_next:
+    add     x11, x11, #110
+    sub     w10, w10, #1
+    b       .L_q3k_sblock
+.L_q3k_store:
+    faddv   s4, p0, z4.s
+    str     s4, [x13], #4
+    sub     w22, w22, #1
+    b       .L_q3k_row
+// ================================================================
+// Q5_K_GEMV (0x78) — Quantized GEMV for ggml Q5_K format
+//
+// Super-block: 256 values in 176 bytes:
+//   [d:fp16][dmin:fp16][scales:12 bytes][qh:32 bytes (high bits)][qs:128 bytes (low 4 bits)]
+// 5-bit quants: low 4 bits in qs, high 1 bit in qh.
+// 8 sub-blocks of 32 values each.
+// Dequant: val = d * sc * q5 - dmin * m, where q5 = low4 | (hbit << 4)
+//
+// Encoding: [0x78][M:u32][K:u32][in:u64][W:u64][out:u64]
+// K must be a multiple of 256.
+// ================================================================
+.L_op_q5_k_gemv:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     w23, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8
+    ldr     x11, [x19], #8
+    ldr     x13, [x19], #8
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #8
+    mov     x17, x8
+.L_q5k_row:
+    cbz     w22, .L_dispatch
+    mov     z4.d, #0
+    mov     x8, x17
+    mov     w10, w24
+.L_q5k_sblock:
+    cbz     w10, .L_q5k_store
+    // Q5_K layout: d(fp16), dmin(fp16), scales[12], qh[32], qs[128]
+    ldr     h0, [x11]
+    ldr     h1, [x11, #2]
+    fcvt    s0, h0
+    fcvt    s1, h1
+    fneg    s1, s1
+    add     x14, x11, #4          // &scales[0]
+    add     x15, x11, #16         // &qh[0] (32 bytes of high bits)
+    add     x16, x11, #48         // &qs[0] (128 bytes of low 4-bit)
+    mov     w12, #0
+.L_q5k_sub:
+    cmp     w12, #8
+    b.ge    .L_q5k_sblock_next
+    // Extract 6-bit scale/min (same as Q4_K)
+    cmp     w12, #4
+    b.ge    .L_q5k_scale_hi
+    ldrb    w3, [x14, w12, uxtw]
+    and     w3, w3, #0x3F
+    add     w5, w12, #4
+    ldrb    w6, [x14, w5, uxtw]
+    and     w6, w6, #0x3F
+    b       .L_q5k_scale_done
+.L_q5k_scale_hi:
+    sub     w5, w12, #4
+    add     w7, w12, #4
+    ldrb    w3, [x14, w7, uxtw]
+    ldrb    w6, [x14, w5, uxtw]
+    and     w16, w3, #0x0F
+    lsr     w6, w6, #6
+    orr     w3, w16, w6, lsl #4
+    ldrb    w16, [x14, w7, uxtw]
+    ldrb    w6, [x14, w12, uxtw]
+    lsr     w16, w16, #4
+    lsr     w6, w6, #6
+    orr     w6, w16, w6, lsl #4
+.L_q5k_scale_done:
+    ucvtf   s2, w3
+    fmul    s2, s0, s2
+    mov     z16.s, s2              // d * sc
+    ucvtf   s3, w6
+    fmul    s3, s1, s3
+    mov     z17.s, s3              // -dmin * m
+    // Load low 4-bit quants (16 bytes = 32 nibbles for this sub-block)
+    lsl     w5, w12, #4
+    add     x3, x16, x5
+    ld1b    {z0.s}, p0/z, [x3]    // 16 bytes → 16 lanes
+    mov     z2.d, z0.d
+    and     z2.s, z2.s, #0x0F     // low nibble (first 16 elements)
+    // Load high bits from qh
+    // qh has 32 bytes = 256 bits, one per element
+    // sub-block j: elements j*32..j*32+31
+    lsl     w5, w12, #2
+    ldr     w6, [x15, w5, uxtw]   // 32 bits of qh for this sub-block
+    // First 16 elements: bits 0..15
+    and     w7, w6, #0xFFFF
+    mov     z5.s, w7
+    index   z6.s, #0, #1
+    lsr     z5.s, p0/m, z5.s, z6.s
+    and     z5.s, z5.s, #0x1
+    lsl     z5.s, z5.s, #4         // shift to bit 4
+    orr     z2.s, z2.s, z5.s       // q5 = low4 | (hbit << 4)
+    ucvtf   z2.s, p0/m, z2.s
+    fmul    z2.s, z2.s, z16.s
+    fadd    z2.s, z2.s, z17.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z2.s, z1.s
+    add     x8, x8, #64
+    // Second 16 elements: high nibbles + qh bits 16..31
+    lsr     z3.s, z0.s, #4
+    and     z3.s, z3.s, #0x0F
+    lsr     w7, w6, #16            // bits 16..31
+    mov     z5.s, w7
+    lsr     z5.s, p0/m, z5.s, z6.s
+    and     z5.s, z5.s, #0x1
+    lsl     z5.s, z5.s, #4
+    orr     z3.s, z3.s, z5.s
+    ucvtf   z3.s, p0/m, z3.s
+    fmul    z3.s, z3.s, z16.s
+    fadd    z3.s, z3.s, z17.s
+    ld1w    {z1.s}, p0/z, [x8]
+    fmla    z4.s, p0/m, z3.s, z1.s
+    add     x8, x8, #64
+    add     w12, w12, #1
+    b       .L_q5k_sub
+.L_q5k_sblock_next:
+    add     x11, x11, #176
+    sub     w10, w10, #1
+    b       .L_q5k_sblock
+.L_q5k_store:
+    faddv   s4, p0, z4.s
+    str     s4, [x13], #4
+    sub     w22, w22, #1
+    b       .L_q5k_row
+// ================================================================
+// Q6_K_GEMV (0x79) — Quantized GEMV for ggml Q6_K format
+//
+// Super-block: 256 values in 210 bytes:
+//   [ql:128 bytes (low 4 bits)][qh:64 bytes (high 2 bits)]
+//   [scales:16 bytes (int8 per sub-block)][d:fp16]
+// 6-bit quants: low 4 bits in ql, high 2 bits in qh.
+// 16 sub-blocks of 16 values each.
+// Dequant: val = d * sc * (q6 - 32), q6 = low4 | (high2 << 4), range [0,63] centered at 32.
+//
+// Encoding: [0x79][M:u32][K:u32][in:u64][W:u64][out:u64]
+// K must be a multiple of 256.
+// ================================================================
+.L_op_q6_k_gemv:
+    ldr     w22, [x19]
+    add     x19, x19, #4
+    ldr     w23, [x19]
+    add     x19, x19, #4
+    ldr     x8, [x19], #8
+    ldr     x11, [x19], #8
+    ldr     x13, [x19], #8
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #8
+    mov     x17, x8
+.L_q6k_row:
+    cbz     w22, .L_dispatch
+    mov     z4.d, #0
+    mov     x8, x17
+    mov     w10, w24
+.L_q6k_sblock:
+    cbz     w10, .L_q6k_store
+    // Q6_K layout: ql[128], qh[64], scales[16], d(fp16)
+    add     x14, x11, #0          // &ql[0]
+    add     x15, x11, #128        // &qh[0]
+    add     x16, x11, #192        // &scales[0]
+    ldr     h0, [x11, #208]       // d
+    fcvt    s0, h0
+    // 16 sub-blocks of 16 values each
+    mov     w12, #0
+.L_q6k_sub:
+    cmp     w12, #16
+    b.ge    .L_q6k_sblock_next
+    // Scale: int8 from scales[j]
+    ldrsb   w3, [x16, w12, uxtw]  // signed int8 scale
+    scvtf   s2, w3
+    fmul    s2, s0, s2             // d * scale
+    mov     z16.s, s2
+    // Load low 4 bits: ql has 128 bytes, 8 bytes per sub-block (but layout is interleaved)
+    // Q6_K ql layout: for sub-block j, the low 4 bits are at ql[j*8..j*8+7]
+    // But ql packing: byte i has two 4-bit values (low nibble = element 2i, high = element 2i+1)
+    // So 8 bytes = 16 values (one sub-block's worth)
+    lsl     w5, w12, #3            // j * 8
+    add     x3, x14, x5
+    ld1b    {z0.s}, p0/z, [x3]    // 16 bytes but only 8 valid for this sub-block
+    // Actually ql has 128 bytes for 256 elements: 128/256 = 0.5 bytes per element = 4 bits each
+    // ql is packed as nibbles, 2 per byte. Sub-block j's 16 elements use 8 bytes.
+    // Load 8 bytes → 8 lanes. Need to split into 16 values.
+    // Use whilelt for 8 elements, then expand nibbles
+    mov     x5, #8
+    whilelt p1.s, xzr, x5
+    ld1b    {z0.s}, p1/z, [x3]    // 8 bytes into lanes 0..7
+    // Low nibbles → elements 0,2,4,...,14 (even indices)
+    // High nibbles → elements 1,3,5,...,15 (odd indices)
+    // Strategy: expand each byte into 2 values
+    mov     z2.d, z0.d
+    and     z2.s, z2.s, #0x0F     // low nibbles (8 values in lanes 0..7)
+    lsr     z3.s, z0.s, #4
+    and     z3.s, z3.s, #0x0F     // high nibbles (8 values in lanes 0..7)
+    // Load high 2 bits from qh
+    // qh has 64 bytes for 256 elements: 64/256 = 0.25 bytes = 2 bits each
+    // Sub-block j's 16 elements use 4 bytes of qh
+    lsl     w5, w12, #2            // j * 4
+    add     x3, x15, x5
+    ldr     w6, [x3]              // 32 bits = 16 × 2-bit high values
+    // Extract 2 bits per element using broadcast + shift + mask
+    // Even elements (0,2,4..14) use bits 0,2,4,...,14 → need bits at positions 0,4,8,...,28
+    // Wait, qh packing: 2 bits per element, sequential. Element i uses bits 2i..2i+1.
+    // For 16 elements: bits 0..31 of the 32-bit word.
+    // Even element i (0..7): combine qh bits with ql low nibble → q6 = low4 | (high2 << 4)
+    // For the first 8 elements (from low nibbles):
+    // qh bits for element 2k: bits at position 2*(2k) = 4k, 4k+1
+    // Actually simpler: element i has qh bits at position 2*i, 2*i+1
+    // First 8 values (even indices in the sub-block, from low nibbles):
+    // Elements 0,1,...,7 in the sub-block
+    // But our split: z2 = low nibble values (sub-block elements 0,2,4,...,14)
+    //                z3 = high nibble values (sub-block elements 1,3,5,...,15)
+    // Actually ql packing for Q6_K is different — it's sequential nibbles, not interleaved.
+    // ql byte i: low nibble = element 2i, high nibble = element 2i+1
+    // So for sub-block j (16 elements): 8 bytes, element j*16+2k in low nibble of byte k,
+    //                                            element j*16+2k+1 in high nibble of byte k
+    // qh for these: element j*16+n has 2-bit high at qh bit position j*16+n (but packed differently)
+    // qh is packed: 4 bytes per sub-block, element n within sub-block uses bits 2n..2n+1
+    // So for even elements (n=0,2,4,...,14 in sub-block): qh bit positions 0,4,8,...,28
+    // For odd elements (n=1,3,5,...,15): qh bit positions 2,6,10,...,30
+    // Elements from z2 (low nibble, n=0,2,...,14): qh_even
+    // Elements from z3 (high nibble, n=1,3,...,15): qh_odd
+    // Extract even-indexed 2-bit fields: shift by [0,4,8,...,28], mask 0x3
+    mov     z5.s, w6               // broadcast qh word
+    index   z6.s, #0, #4          // [0, 4, 8, 12, 16, 20, 24, 28] for even elements
+    lsr     z5.s, p1/m, z5.s, z6.s
+    and     z5.s, z5.s, #0x3
+    lsl     z5.s, z5.s, #4
+    orr     z2.s, z2.s, z5.s       // q6_even = low4 | (high2 << 4)
+    // Odd elements: shift by [2,6,10,...,30]
+    mov     z5.s, w6
+    index   z6.s, #2, #4          // [2, 6, 10, 14, 18, 22, 26, 30]
+    lsr     z5.s, p1/m, z5.s, z6.s
+    and     z5.s, z5.s, #0x3
+    lsl     z5.s, z5.s, #4
+    orr     z3.s, z3.s, z5.s       // q6_odd = low4 | (high2 << 4)
+    // Center: subtract 32
+    mov     z5.s, #32
+    sub     z2.s, z2.s, z5.s       // q6_even - 32
+    sub     z3.s, z3.s, z5.s       // q6_odd - 32
+    // Convert and accumulate even elements (first 8 values)
+    scvtf   z2.s, p1/m, z2.s
+    fmul    z2.s, z2.s, z16.s
+    // We have 8 values in z2 lanes 0..7 and 8 values in z3 lanes 0..7
+    // But input vector has 16 contiguous elements. Need to interleave.
+    // Load input, split into even/odd, accumulate separately
+    ld1w    {z7.s}, p0/z, [x8]    // 16 input values
+    // Interleave z2 and z3 into 16 values: z2[0], z3[0], z2[1], z3[1], ...
+    zip1    z0.s, z2.s, z3.s      // interleave low halves → 16 values
+    scvtf   z3.s, p1/m, z3.s      // convert odd values (not yet done above)
+    fmul    z3.s, z3.s, z16.s
+    zip1    z0.s, z2.s, z3.s      // re-interleave after both are dequantized
+    fmla    z4.s, p0/m, z0.s, z7.s
+    add     x8, x8, #64
+    add     w12, w12, #1
+    b       .L_q6k_sub
+.L_q6k_sblock_next:
+    add     x11, x11, #210
+    sub     w10, w10, #1
+    b       .L_q6k_sblock
+.L_q6k_store:
+    faddv   s4, p0, z4.s
+    str     s4, [x13], #4
+    sub     w22, w22, #1
+    b       .L_q6k_row
+// ================================================================
+// FLASH_ATTENTION_FP32 (0x7A) — Fused tiled flash attention (single head)
+//
+// Computes: out = softmax(Q @ K^T / sqrt(d)) @ V
+// Uses online softmax (FlashAttention algorithm) to avoid materializing
+// the full N×N score matrix. Processes 16×16 score tiles.
+//
+// Encoding: [0x7A][N:u32][d:u32][flags:u8][Q:u64][K:u64][V:u64][out:u64]
+// N = sequence length (must be multiple of 16)
+// d = head dimension (must be multiple of 16)
+// flags bit 0: causal mask (mask where key position > query position)
+// Q, K, V: N×d fp32 row-major matrices
+// out: N×d fp32 output
+//
+// Tile geometry:
+//   za2 = 16×16 score tile (Q_block @ K_block^T), then P after softmax
+//   za3 = Q column chunk (16×16 load, vertical extract for Q columns)
+//   za1 = K column chunk (same pattern for K columns)
+//   za0 = output tile (P @ V_chunk accumulation)
+//
+// Stack layout (256 bytes):
+//   [sp+0]:    m[16] (per-row max, 64 bytes)
+//   [sp+64]:   l[16] (per-row sum, 64 bytes)
+//   [sp+128]:  Q_ptr (x)      [sp+136]:  K_ptr (x)
+//   [sp+144]:  V_ptr (x)      [sp+152]:  out_ptr (x)
+//   [sp+160]:  N (w)          [sp+164]:  d (w)
+//   [sp+168]:  flags (w)      [sp+172]:  d_blocks (w) = d/16
+//   [sp+176]:  qi (w)         [sp+180]:  kj (w)
+//   [sp+184]:  d_stride (x) = d * 4
+//   [sp+192]:  rsqrt_d (f32)
+// ================================================================
+.L_op_flash_attention_fp32:
+    ldr     w22, [x19]             // N
+    ldr     w23, [x19, #4]        // d
+    ldrb    w24, [x19, #8]        // flags
+    add     x19, x19, #9
+    ldr     x6, [x19], #8         // Q
+    ldr     x7, [x19], #8         // K
+    ldr     x8, [x19], #8         // V
+    ldr     x11, [x19], #8        // out
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9                     // 16
+    sub     sp, sp, #320
+    str     x6, [sp, #128]
+    str     x7, [sp, #136]
+    str     x8, [sp, #144]
+    str     x11, [sp, #152]
+    stp     w22, w23, [sp, #160]
+    str     w24, [sp, #168]
+    lsr     w10, w23, #4           // d_blocks = d / 16
+    str     w10, [sp, #172]
+    lsl     x10, x23, #2           // d_stride = d * 4
+    str     x10, [sp, #184]
+    // Compute rsqrt(d) via frsqrte + Newton
+    ucvtf   s0, w23
+    frsqrte s1, s0
+    fmul    s2, s1, s1
+    fmul    s2, s0, s2
+    frsqrts s2, s0, s2
+    fmul    s1, s1, s2             // refined rsqrt(d)
+    str     s1, [sp, #192]
+    // ── Zero the output buffer: N × d floats ──
+    mul     w10, w22, w23          // N * d
+    mov     z0.d, #0
+.L_fa_zero:
+    cbz     w10, .L_fa_zero_done
+    st1w    {z0.s}, p0, [x11]
+    add     x11, x11, x9, lsl #2
+    subs    w10, w10, w9
+    b.ne    .L_fa_zero
+.L_fa_zero_done:
+    // ── Query block loop ──
+    mov     w0, #0                 // qi = 0
+.L_fa_qi:
+    str     w0, [sp, #176]
+    ldr     w22, [sp, #160]
+    cmp     w0, w22
+    b.ge    .L_fa_done
+    // Initialize m = -inf, l = 0 for this query block
+    movz    w4, #0xFF80, lsl #16
+    fmov    s0, w4
+    mov     z0.s, s0               // -inf
+    st1w    {z0.s}, p0, [sp]      // m[0..15] = -inf
+    fmov    z0.s, #0.0
+    add     x16, sp, #64
+    st1w    {z0.s}, p0, [x16]    // l[0..15] = 0
+    // ── Key block loop ──
+    mov     w1, #0                 // kj = 0
+.L_fa_kj:
+    str     w1, [sp, #180]
+    ldr     w22, [sp, #160]
+    cmp     w1, w22
+    b.ge    .L_fa_kj_done
+    // Causal check: if causal and kj > qi+15, skip (all masked)
+    ldr     w24, [sp, #168]
+    tst     w24, #1
+    b.eq    .L_fa_no_skip
+    ldr     w0, [sp, #176]
+    add     w0, w0, #15
+    cmp     w1, w0
+    b.gt    .L_fa_kj_done          // all keys in this block are future → done
+.L_fa_no_skip:
+    // ── Phase 1: Score = Q_block @ K_block^T → za2 (16×16) ──
+    zero    {za2.s}
+    ldr     x6, [sp, #128]         // Q
+    ldr     x7, [sp, #136]         // K
+    ldr     x10, [sp, #184]        // d_stride
+    ldr     w0, [sp, #176]         // qi
+    ldr     w1, [sp, #180]         // kj
+    ldr     w23, [sp, #164]        // d
+    // Q_base = Q + qi * d * 4
+    mul     w3, w0, w23
+    add     x6, x6, x3, lsl #2    // Q_block start
+    // K_base = K + kj * d * 4
+    mul     w3, w1, w23
+    add     x7, x7, x3, lsl #2    // K_block start
+    ldr     w12, [sp, #172]        // d_blocks = d / 16
+    mov     w14, #0                // k_chunk offset (in elements)
+.L_fa_score_k:
+    cbz     w12, .L_fa_score_done
+    // Load Q[qi:qi+16, k:k+16] into za3
+    zero    {za3.s}
+    add     x3, x6, x14, lsl #2   // Q + qi*d*4 + k*4
+    mov     w15, #0
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za3h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #4
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za3h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #8
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za3h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #12
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    mova    za3h.s[w15, 0:3], {z0.s-z3.s}
+    // Load K[kj:kj+16, k:k+16] into za1
+    zero    {za1.s}
+    add     x3, x7, x14, lsl #2
+    mov     w15, #0
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za1h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #4
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za1h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #8
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    mova    za1h.s[w15, 0:3], {z0.s-z3.s}
+    mov     w15, #12
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    mova    za1h.s[w15, 0:3], {z0.s-z3.s}
+    // FMOPA: za2 += Q_col × K_col for 16 k-steps
+    mov     w15, #0
+    mova    {z0.s-z3.s}, za3v.s[w15, 0:3]
+    mova    {z4.s-z7.s}, za1v.s[w15, 0:3]
+    fmopa   za2.s, p0/m, p0/m, z0.s, z4.s
+    fmopa   za2.s, p0/m, p0/m, z1.s, z5.s
+    fmopa   za2.s, p0/m, p0/m, z2.s, z6.s
+    fmopa   za2.s, p0/m, p0/m, z3.s, z7.s
+    mov     w15, #4
+    mova    {z0.s-z3.s}, za3v.s[w15, 0:3]
+    mova    {z4.s-z7.s}, za1v.s[w15, 0:3]
+    fmopa   za2.s, p0/m, p0/m, z0.s, z4.s
+    fmopa   za2.s, p0/m, p0/m, z1.s, z5.s
+    fmopa   za2.s, p0/m, p0/m, z2.s, z6.s
+    fmopa   za2.s, p0/m, p0/m, z3.s, z7.s
+    mov     w15, #8
+    mova    {z0.s-z3.s}, za3v.s[w15, 0:3]
+    mova    {z4.s-z7.s}, za1v.s[w15, 0:3]
+    fmopa   za2.s, p0/m, p0/m, z0.s, z4.s
+    fmopa   za2.s, p0/m, p0/m, z1.s, z5.s
+    fmopa   za2.s, p0/m, p0/m, z2.s, z6.s
+    fmopa   za2.s, p0/m, p0/m, z3.s, z7.s
+    mov     w15, #12
+    mova    {z0.s-z3.s}, za3v.s[w15, 0:3]
+    mova    {z4.s-z7.s}, za1v.s[w15, 0:3]
+    fmopa   za2.s, p0/m, p0/m, z0.s, z4.s
+    fmopa   za2.s, p0/m, p0/m, z1.s, z5.s
+    fmopa   za2.s, p0/m, p0/m, z2.s, z6.s
+    fmopa   za2.s, p0/m, p0/m, z3.s, z7.s
+    add     w14, w14, #16          // k_chunk += 16
+    sub     w12, w12, #1
+    b       .L_fa_score_k
+.L_fa_score_done:
+    // za2 now has the 16×16 raw score tile
+    // ── Phase 2: Scale by rsqrt(d), apply causal mask, online softmax ──
+    LOAD_EXP_CONSTANTS
+    ldr     s16, [sp, #192]        // rsqrt_d
+    mov     z16.s, s16
+    movz    w4, #0xFF80, lsl #16
+    fmov    s17, w4
+    mov     z17.s, s17              // -inf
+    ld1w    {z18.s}, p0/z, [sp]    // m_old[16]
+    add     x16, sp, #64
+    ld1w    {z19.s}, p0/z, [x16]   // l_old[16]
+    ldr     w0, [sp, #176]         // qi
+    ldr     w1, [sp, #180]         // kj
+    ldr     w24, [sp, #168]        // flags
+    // Process 4 rows at a time (extract 4, scale, mask, find max, write back)
+    mov     w12, #0
+.L_fa_softmax_grp:
+    cmp     w12, #16
+    b.ge    .L_fa_softmax_done
+    mova    {z0.s-z3.s}, za2h.s[w12, 0:3]
+    // Scale by rsqrt_d
+    fmul    z0.s, z0.s, z16.s
+    fmul    z1.s, z1.s, z16.s
+    fmul    z2.s, z2.s, z16.s
+    fmul    z3.s, z3.s, z16.s
+    // Causal mask: for row qi+w12+r (r=0..3), mask columns where kj+col > qi+w12+r
+    tst     w24, #1
+    b.eq    .L_fa_no_mask
+    add     w3, w0, w12            // qi + row_base
+    // Row 0: mask where kj + col > qi + row_base
+    index   z8.s, w1, #1          // z8 = [kj, kj+1, ..., kj+15]
+    mov     z9.s, w3               // qi + row_base
+    cmpgt   p1.s, p0/z, z8.s, z9.s // p1 set where kj+col > qi+row
+    mov     z0.s, p1/m, z17.s     // masked positions → -inf
+    add     w3, w3, #1
+    mov     z9.s, w3
+    cmpgt   p1.s, p0/z, z8.s, z9.s
+    mov     z1.s, p1/m, z17.s
+    add     w3, w3, #1
+    mov     z9.s, w3
+    cmpgt   p1.s, p0/z, z8.s, z9.s
+    mov     z2.s, p1/m, z17.s
+    add     w3, w3, #1
+    mov     z9.s, w3
+    cmpgt   p1.s, p0/z, z8.s, z9.s
+    mov     z3.s, p1/m, z17.s
+.L_fa_no_mask:
+    // Write scaled+masked scores back to za2
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    // Find per-row max (horizontal max of each row)
+    fmaxv   s8, p0, z0.s          // max of row w12+0
+    fmaxv   s9, p0, z1.s          // max of row w12+1
+    fmaxv   s10, p0, z2.s         // max of row w12+2
+    fmaxv   s11, p0, z3.s         // max of row w12+3
+    // Store row maxima into a temporary z-vector
+    // We'll build the full m_new[16] vector across 4 groups
+    // Store to stack and load at the end
+    add     x3, sp, #196          // temp area at end of frame
+    str     s8, [x3, w12, uxtw #2]
+    add     w4, w12, #1
+    str     s9, [x3, w4, uxtw #2]
+    add     w4, w12, #2
+    str     s10, [x3, w4, uxtw #2]
+    add     w4, w12, #3
+    str     s11, [x3, w4, uxtw #2]
+    add     w12, w12, #4
+    b       .L_fa_softmax_grp
+.L_fa_softmax_done:
+    // Load m_new[16] from temp area
+    add     x3, sp, #196
+    ld1w    {z20.s}, p0/z, [x3]   // z20 = per-row max of current score tile
+    // m_combined = max(m_old, m_new)
+    mov     z21.d, z18.d
+    fmax    z21.s, p0/m, z21.s, z20.s // z21 = max(m_old, m_new)
+    // Correction factor for old accumulator: exp(m_old - m_combined)
+    movprfx z22, z18
+    fsub    z22.s, p0/m, z22.s, z21.s // m_old - m_combined (≤ 0)
+    // exp(z22) → z22 via per-lane exp
+    // Process 16 lanes: broadcast is already in z22, use EXP_POLY
+    mov     z0.d, z22.d
+    EXP_POLY_Z0_TO_Z4
+    mov     z22.d, z4.d            // z22 = exp(m_old - m_combined) = alpha
+    // Correction for new scores: exp(m_new - m_combined)
+    movprfx z23, z20
+    fsub    z23.s, p0/m, z23.s, z21.s // m_new - m_combined (≤ 0)
+    mov     z0.d, z23.d
+    EXP_POLY_Z0_TO_Z4
+    mov     z23.d, z4.d            // z23 = exp(m_new - m_combined) = beta
+    // l_new = alpha * l_old + beta * rowsum(P)
+    // First compute P = exp(score - m_combined_per_row) in za2
+    // Process each row group: subtract m_combined (per-row), exp, sum
+    fmov    z24.s, #0.0            // will accumulate per-row sums
+    LOAD_EXP_CONSTANTS             // reload exp constants (clobbered by EXP_POLY above)
+    mov     w12, #0
+.L_fa_exp_grp:
+    cmp     w12, #16
+    b.ge    .L_fa_exp_done
+    mova    {z0.s-z3.s}, za2h.s[w12, 0:3]
+    // Need to subtract m_combined for each row. m_combined is in z21.
+    // Extract the scalar for each row from z21 and broadcast
+    // Row w12+0: z21[w12+0], Row w12+1: z21[w12+1], etc.
+    // Use lastb/clastb or index extraction
+    // Simpler: store z21 to stack, load scalars
+    add     x3, sp, #196
+    st1w    {z21.s}, p0, [x3]
+    ldr     s8, [x3, w12, uxtw #2]
+    mov     z8.s, s8               // broadcast m_combined for row w12+0
+    fsub    z0.s, z0.s, z8.s
+    add     w4, w12, #1
+    ldr     s8, [x3, w4, uxtw #2]
+    mov     z8.s, s8
+    fsub    z1.s, z1.s, z8.s
+    add     w4, w12, #2
+    ldr     s8, [x3, w4, uxtw #2]
+    mov     z8.s, s8
+    fsub    z2.s, z2.s, z8.s
+    add     w4, w12, #3
+    ldr     s8, [x3, w4, uxtw #2]
+    mov     z8.s, s8
+    fsub    z3.s, z3.s, z8.s
+    // Exp each row (4 rows, need to call EXP_POLY 4 times)
+    // Save z1-z3, process z0
+    add     x16, sp, #196
+    st1w    {z1.s}, p0, [x16]    // temp reuse (we already stored z21 but don't need it anymore after loading)
+    // Actually this temp area is too small for multiple vectors. Let me use a different approach.
+    // Process one row at a time through exp, accumulate sum, write back to za2
+    // Row 0:
+    EXP_POLY_Z0_TO_Z4             // z4 = exp(score[row0] - m)
+    faddv   s8, p0, z4.s          // rowsum
+    add     x3, sp, #196
+    str     s8, [x3, w12, uxtw #2] // store rowsum for row w12+0
+    // Write P row back to za2 — but we can only write 4 rows at once with mova
+    // Store z4 temporarily and batch-write later
+    mov     z8.d, z4.d             // save row 0 P
+    // Row 1:
+    mov     z0.d, z1.d
+    EXP_POLY_Z0_TO_Z4
+    faddv   s9, p0, z4.s
+    add     w4, w12, #1
+    str     s9, [x3, w4, uxtw #2]
+    mov     z9.d, z4.d             // save row 1 P
+    // Row 2:
+    mov     z0.d, z2.d
+    EXP_POLY_Z0_TO_Z4
+    faddv   s10, p0, z4.s
+    add     w4, w12, #2
+    str     s10, [x3, w4, uxtw #2]
+    mov     z10.d, z4.d            // save row 2 P
+    // Row 3:
+    mov     z0.d, z3.d
+    EXP_POLY_Z0_TO_Z4
+    faddv   s11, p0, z4.s
+    add     w4, w12, #3
+    str     s11, [x3, w4, uxtw #2]
+    // Write 4 P rows back to za2
+    mov     z0.d, z8.d
+    mov     z1.d, z9.d
+    mov     z2.d, z10.d
+    mov     z3.d, z4.d             // row 3 is still in z4
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    LOAD_EXP_CONSTANTS             // reload (clobbered by EXP_POLY)
+    add     w12, w12, #4
+    b       .L_fa_exp_grp
+.L_fa_exp_done:
+    // Load per-row sums from temp area
+    add     x3, sp, #196
+    ld1w    {z24.s}, p0/z, [x3]   // z24 = rowsum(P) for each row
+    // l_new = alpha * l_old + beta * rowsum(P)
+    fmul    z19.s, z19.s, z22.s    // alpha * l_old
+    fmul    z24.s, z24.s, z23.s    // beta * rowsum(P)
+    fadd    z19.s, z19.s, z24.s    // l_new
+    // Save updated m and l
+    st1w    {z21.s}, p0, [sp]      // m = m_combined
+    add     x16, sp, #64
+    st1w    {z19.s}, p0, [x16]   // l = l_new
+    // ── Phase 3: Rescale existing output and accumulate P @ V ──
+    // For each d_chunk of 16 V-columns:
+    //   Load O[qi:qi+16, dc:dc+16] (16×16 from output buffer)
+    //   Scale each row by alpha (correction for old max)
+    //   Compute P @ V[kj:kj+16, dc:dc+16] → add to O
+    //   Store updated O
+    ldr     x11, [sp, #152]        // out
+    ldr     x8, [sp, #144]         // V
+    ldr     x10, [sp, #184]        // d_stride
+    ldr     w0, [sp, #176]         // qi
+    ldr     w1, [sp, #180]         // kj
+    ldr     w23, [sp, #164]        // d
+    mul     w3, w0, w23
+    add     x11, x11, x3, lsl #2  // out + qi * d * 4
+    mul     w3, w1, w23
+    add     x8, x8, x3, lsl #2    // V + kj * d * 4
+    ldr     w12, [sp, #172]        // d_blocks
+    mov     w14, #0                // dc = 0 (d-column offset)
+.L_fa_v_chunk:
+    cbz     w12, .L_fa_kj_advance
+    // Load O[qi:qi+16, dc:dc+16] into za0, scale by alpha
+    zero    {za0.s}
+    add     x3, x11, x14, lsl #2  // &out[qi][dc]
+    mov     w15, #0
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    // Scale rows by alpha (z22 has per-row alpha, need per-row broadcast)
+    // z22[i] = alpha for row i. For row 0: multiply z0 by z22[0] broadcast
+    // Use fmul with lane-indexed scalar: not directly available in SVE
+    // Simpler: z22 is a vector, but we need to multiply each row vector
+    // by a DIFFERENT scalar (the alpha for that row).
+    // Use the stored alpha vector and extract scalars
+    add     x5, sp, #196
+    st1w    {z22.s}, p0, [x5]     // store alpha vector
+    ldr     s8, [x5]              // alpha[0]
+    mov     z8.s, s8
+    fmul    z0.s, z0.s, z8.s
+    ldr     s8, [x5, #4]          // alpha[1]
+    mov     z8.s, s8
+    fmul    z1.s, z1.s, z8.s
+    ldr     s8, [x5, #8]
+    mov     z8.s, s8
+    fmul    z2.s, z2.s, z8.s
+    ldr     s8, [x5, #12]
+    mov     z8.s, s8
+    fmul    z3.s, z3.s, z8.s
+    mova    za0h.s[w15, 0:3], {z0.s-z3.s}
+    // Rows 4-7
+    mov     w15, #4
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ldr     s8, [x5, #16]
+    mov     z8.s, s8
+    fmul    z0.s, z0.s, z8.s
+    ldr     s8, [x5, #20]
+    mov     z8.s, s8
+    fmul    z1.s, z1.s, z8.s
+    ldr     s8, [x5, #24]
+    mov     z8.s, s8
+    fmul    z2.s, z2.s, z8.s
+    ldr     s8, [x5, #28]
+    mov     z8.s, s8
+    fmul    z3.s, z3.s, z8.s
+    mova    za0h.s[w15, 0:3], {z0.s-z3.s}
+    // Rows 8-11
+    mov     w15, #8
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ldr     s8, [x5, #32]
+    mov     z8.s, s8
+    fmul    z0.s, z0.s, z8.s
+    ldr     s8, [x5, #36]
+    mov     z8.s, s8
+    fmul    z1.s, z1.s, z8.s
+    ldr     s8, [x5, #40]
+    mov     z8.s, s8
+    fmul    z2.s, z2.s, z8.s
+    ldr     s8, [x5, #44]
+    mov     z8.s, s8
+    fmul    z3.s, z3.s, z8.s
+    mova    za0h.s[w15, 0:3], {z0.s-z3.s}
+    // Rows 12-15
+    mov     w15, #12
+    ld1w    {z0.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z1.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z2.s}, p0/z, [x3]
+    add     x3, x3, x10
+    ld1w    {z3.s}, p0/z, [x3]
+    ldr     s8, [x5, #48]
+    mov     z8.s, s8
+    fmul    z0.s, z0.s, z8.s
+    ldr     s8, [x5, #52]
+    mov     z8.s, s8
+    fmul    z1.s, z1.s, z8.s
+    ldr     s8, [x5, #56]
+    mov     z8.s, s8
+    fmul    z2.s, z2.s, z8.s
+    ldr     s8, [x5, #60]
+    mov     z8.s, s8
+    fmul    z3.s, z3.s, z8.s
+    mova    za0h.s[w15, 0:3], {z0.s-z3.s}
+    // za0 now has alpha-scaled old output for this d-chunk
+    // Accumulate P @ V_chunk: for each k in 0..15, za0 += P_col[k] × V_row[k]
+    // P is in za2, V rows loaded from memory
+    add     x3, x8, x14, lsl #2   // V + kj*d*4 + dc*4
+    mov     w15, #0
+    mova    {z0.s-z3.s}, za2v.s[w15, 0:3]
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+    mov     w15, #4
+    mova    {z0.s-z3.s}, za2v.s[w15, 0:3]
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+    mov     w15, #8
+    mova    {z0.s-z3.s}, za2v.s[w15, 0:3]
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+    mov     w15, #12
+    mova    {z0.s-z3.s}, za2v.s[w15, 0:3]
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z0.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z1.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    add     x3, x3, x10
+    fmopa   za0.s, p0/m, p0/m, z2.s, z4.s
+    ld1w    {z4.s}, p0/z, [x3]
+    fmopa   za0.s, p0/m, p0/m, z3.s, z4.s
+    // Store za0 to output[qi:qi+16, dc:dc+16]
+    add     x3, x11, x14, lsl #2
+    mov     w15, #0
+    mova    {z0.s-z3.s}, za0h.s[w15, 0:3]
+    st1w    {z0.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z1.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z2.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z3.s}, p0, [x3]
+    add     x3, x3, x10
+    mov     w15, #4
+    mova    {z0.s-z3.s}, za0h.s[w15, 0:3]
+    st1w    {z0.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z1.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z2.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z3.s}, p0, [x3]
+    add     x3, x3, x10
+    mov     w15, #8
+    mova    {z0.s-z3.s}, za0h.s[w15, 0:3]
+    st1w    {z0.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z1.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z2.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z3.s}, p0, [x3]
+    add     x3, x3, x10
+    mov     w15, #12
+    mova    {z0.s-z3.s}, za0h.s[w15, 0:3]
+    st1w    {z0.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z1.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z2.s}, p0, [x3]
+    add     x3, x3, x10
+    st1w    {z3.s}, p0, [x3]
+    add     w14, w14, #16
+    sub     w12, w12, #1
+    ldr     w12, [sp, #172]        // reload d_blocks (w12 was reused)
+    sub     w12, w12, #1           // hmm, need proper d_chunk counter
+    // Actually: w14 tracks d-column offset, compare against d
+    ldr     w23, [sp, #164]
+    cmp     w14, w23
+    b.lt    .L_fa_v_chunk
+.L_fa_kj_advance:
+    ldr     w1, [sp, #180]
+    add     w1, w1, #16
+    b       .L_fa_kj
+.L_fa_kj_done:
+    // ── Phase 4: Final normalization: O[qi] /= l ──
+    ldr     x11, [sp, #152]
+    ldr     x10, [sp, #184]
+    ldr     w0, [sp, #176]
+    ldr     w23, [sp, #164]
+    mul     w3, w0, w23
+    add     x11, x11, x3, lsl #2  // &out[qi][0]
+    add     x16, sp, #64
+    ld1w    {z19.s}, p0/z, [x16]   // l[16]
+    // Compute 1/l per row
+    frecpe  z20.s, z19.s
+    frecps  z21.s, z19.s, z20.s
+    fmul    z20.s, p0/m, z20.s, z21.s
+    frecps  z21.s, z19.s, z20.s
+    fmul    z20.s, p0/m, z20.s, z21.s // z20 = 1/l[16]
+    // For each row i, multiply entire output row by 1/l[i]
+    // Store 1/l to temp, extract per row
+    add     x3, sp, #196
+    st1w    {z20.s}, p0, [x3]
+    mov     w12, #0
+.L_fa_norm:
+    cmp     w12, #16
+    b.ge    .L_fa_qi_advance
+    ldr     s8, [x3, w12, uxtw #2]
+    mov     z8.s, s8               // broadcast 1/l[row]
+    mov     x5, x11               // row start
+    ldr     w4, [sp, #172]         // d_blocks
+.L_fa_norm_d:
+    cbz     w4, .L_fa_norm_next
+    ld1w    {z0.s}, p0/z, [x5]
+    fmul    z0.s, z0.s, z8.s
+    st1w    {z0.s}, p0, [x5]
+    add     x5, x5, x9, lsl #2
+    sub     w4, w4, #1
+    b       .L_fa_norm_d
+.L_fa_norm_next:
+    add     x11, x11, x10         // next row
+    add     w12, w12, #1
+    b       .L_fa_norm
+.L_fa_qi_advance:
+    ldr     w0, [sp, #176]
+    add     w0, w0, #16
+    b       .L_fa_qi
+.L_fa_done:
+    add     sp, sp, #320
+    b       .L_dispatch
+// ================================================================
+// GET_ROWS_FP32 (0x7B) — Embedding lookup from fp32 table
+//
+// For each index in indices[0..n_rows-1], copies the corresponding row
+// from the embedding table to the output. No dequantization needed.
+//
+// Encoding: [0x7B][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+// dim must be a multiple of 16. indices are uint32_t.
+// ================================================================
+.L_op_get_rows_fp32:
+    ldr     w22, [x19]             // n_rows
+    ldr     w23, [x19, #4]        // dim
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // table (fp32, vocab_size × dim)
+    ldr     x11, [x19], #8        // indices (uint32_t array)
+    ldr     x13, [x19], #8        // out (fp32, n_rows × dim)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsl     x10, x23, #2           // dim_bytes = dim * 4
+.L_gr32_row:
+    ldr     w3, [x11], #4         // idx = indices[i]
+    mul     x3, x3, x10            // idx * dim_bytes
+    add     x14, x8, x3            // &table[idx][0]
+    mov     w12, w23               // dim counter
+.L_gr32_copy:
+    ld1w    {z0.s}, p0/z, [x14]
+    st1w    {z0.s}, p0, [x13]
+    add     x14, x14, x9, lsl #2
+    add     x13, x13, x9, lsl #2
+    subs    w12, w12, w9
+    b.ne    .L_gr32_copy
+    subs    w22, w22, #1
+    b.ne    .L_gr32_row
+    b       .L_dispatch
+// ================================================================
+// GET_ROWS_Q8_0 (0x7C) — Embedding lookup + dequant from Q8_0 table
+//
+// Each table row is stored as Q8_0 blocks: {fp16 scale, 32×int8} = 34 bytes per 32 elements.
+// Dequantizes to fp32 on output.
+//
+// Encoding: [0x7C][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+// dim must be a multiple of 32.
+// ================================================================
+.L_op_get_rows_q8_0:
+    ldr     w22, [x19]
+    ldr     w23, [x19, #4]        // dim
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // table (Q8_0 blocks)
+    ldr     x11, [x19], #8        // indices
+    ldr     x13, [x19], #8        // out (fp32)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #5           // blocks_per_row = dim / 32
+    // row_bytes = blocks_per_row * 34
+    mov     w10, #34
+    mul     w10, w24, w10
+    sxtw    x10, w10               // row_bytes
+.L_grq8_row:
+    ldr     w3, [x11], #4         // idx
+    mul     x3, x3, x10            // idx * row_bytes
+    add     x14, x8, x3            // &table[idx] (Q8_0 row start)
+    mov     w12, w24               // block counter
+.L_grq8_block:
+    cbz     w12, .L_grq8_next
+    ldr     h0, [x14]             // fp16 scale
+    fcvt    s0, h0
+    mov     z16.s, s0              // broadcast scale
+    add     x16, x14, #2           // &qs[0]
+    // First 16 quants
+    ld1sb   {z0.s}, p0/z, [x16]
+    scvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s
+    st1w    {z0.s}, p0, [x13]
+    add     x13, x13, x9, lsl #2
+    // Second 16 quants
+    add     x16, x16, #16
+    ld1sb   {z0.s}, p0/z, [x16]
+    scvtf   z0.s, p0/m, z0.s
+    fmul    z0.s, z0.s, z16.s
+    st1w    {z0.s}, p0, [x13]
+    add     x13, x13, x9, lsl #2
+    add     x14, x14, #34          // next block
+    sub     w12, w12, #1
+    b       .L_grq8_block
+.L_grq8_next:
+    subs    w22, w22, #1
+    b.ne    .L_grq8_row
+    b       .L_dispatch
+// ================================================================
+// GET_ROWS_Q4_0 (0x7D) — Embedding lookup + dequant from Q4_0 table
+//
+// Each table row is stored as Q4_0 blocks: {fp16 scale, 16 packed bytes} = 18 bytes per 32 elements.
+// Low nibble = element i (0..15), high nibble = element i+16 (16..31).
+// Dequant: (nibble - 8) * scale
+//
+// Encoding: [0x7D][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+// dim must be a multiple of 32.
+// ================================================================
+.L_op_get_rows_q4_0:
+    ldr     w22, [x19]
+    ldr     w23, [x19, #4]
+    add     x19, x19, #8
+    ldr     x8, [x19], #8         // table (Q4_0 blocks)
+    ldr     x11, [x19], #8        // indices
+    ldr     x13, [x19], #8        // out (fp32)
+    cbz     w22, .L_dispatch
+    ptrue   p0.s
+    cntw    x9
+    lsr     w24, w23, #5           // blocks_per_row = dim / 32
+    mov     w10, #18
+    mul     w10, w24, w10
+    sxtw    x10, w10               // row_bytes
+    mov     w4, #8
+    dup     z17.s, w4              // bias = 8
+.L_grq4_row:
+    ldr     w3, [x11], #4
+    mul     x3, x3, x10
+    add     x14, x8, x3
+    mov     w12, w24
+.L_grq4_block:
+    cbz     w12, .L_grq4_next
+    ldr     h0, [x14]
+    fcvt    s0, h0
+    mov     z16.s, s0              // broadcast scale
+    add     x16, x14, #2           // &qs[0]
+    ld1b    {z0.s}, p0/z, [x16]   // 16 bytes → 16 lanes
+    // Low nibbles (elements 0..15)
+    mov     z2.d, z0.d
+    and     z2.s, z2.s, #0x0F
+    sub     z2.s, z2.s, z17.s      // - 8
+    scvtf   z2.s, p0/m, z2.s
+    fmul    z2.s, z2.s, z16.s
+    st1w    {z2.s}, p0, [x13]
+    add     x13, x13, x9, lsl #2
+    // High nibbles (elements 16..31)
+    lsr     z3.s, z0.s, #4
+    and     z3.s, z3.s, #0x0F
+    sub     z3.s, z3.s, z17.s
+    scvtf   z3.s, p0/m, z3.s
+    fmul    z3.s, z3.s, z16.s
+    st1w    {z3.s}, p0, [x13]
+    add     x13, x13, x9, lsl #2
+    add     x14, x14, #18
+    sub     w12, w12, #1
+    b       .L_grq4_block
+.L_grq4_next:
+    subs    w22, w22, #1
+    b.ne    .L_grq4_row
+    b       .L_dispatch

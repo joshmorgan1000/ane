@@ -19,36 +19,45 @@ template<ValidZType T>
 class z_stream {
 private:
     /// @brief Type-erased pointer to allocate the aligned memory for the z_stream
-    z_vector<T>* data_ = nullptr;
-    /// @brief Number of zvecs (512-bit vectors) allocated in the stream
-    size_t num_zvecs_ = 0;
+    T* data_ = nullptr;
+    /// @brief Size of the stream in bytes
+    size_t size_bytes_ = 0;
     /** --------------------------------------------------------------------------------- Aligned Memory Allocation
-     * @brief Allocates aligned memory for the z_stream based on the number of zvecs
-     * needed. Each zvec is 64 bytes, so the total size allocated is num_zvecs * 64
-     * bytes, rounded up to the nearest multiple of 64 for alignment.
-     * @param size The total size in bytes needed for the z_stream (should be
-     * num_zvecs * 64) 
+     * @brief Allocates aligned memory for the z_stream, rounded up to the nearest
+     * multiple of 64 bytes for z-vector alignment.
+     * @param size_bytes The total size in bytes needed for the z_stream
      */
-    void alignedAlloc(size_t size) {
-        size <<= 6; // Multiply by 64 to get the total size in bytes
-        // Align to the size of the full za.b tile (4096 bytes) to ensure optimal
-        // access patterns for streaming
-        data_ = static_cast<z_vector<T>*>(std::aligned_alloc(4096, size));
+    void alignedAlloc(size_t size_bytes) {
+        size_t aligned_size = (size_bytes + 63) & ~size_t(63);
+        data_ = static_cast<T*>(std::aligned_alloc(4096, aligned_size));
         if (!data_) [[unlikely]] {
             std::string error_msg = "Failed to allocate memory for z_stream:"
-                    " requested size " + std::to_string(size) + " bytes";
+                    " requested size " + std::to_string(aligned_size) + " bytes";
             throw std::runtime_error(error_msg);
         }
     }
 public:
     /** --------------------------------------------------------------------------------- Constructor
-     * @brief Constructor for z_stream. Allocates memory for the specified number of
-     * zvecs, each of which is 512 bits (64 bytes).
-     * @param num_zvecs The number of 512-bit vectors (zvecs) to allocate in the stream
+     * @brief Constructor for z_stream. Allocates memory for the specified size in bytes.
+     * @param size_bytes The total size in bytes to allocate for the stream
      */
-    z_stream(size_t num_zvecs, T initial_val = T()) : num_zvecs_(num_zvecs) {
-        alignedAlloc(num_zvecs_);
-        std::fill(data_, data_ + num_zvecs_, z_vector<T>(initial_val));
+    z_stream(size_t size_bytes, T initial_val = T()) : size_bytes_(size_bytes) {
+        alignedAlloc(size_bytes_);
+        std::fill(data_, data_ + (size_bytes_ / sizeof(T)), initial_val);
+    }
+    /** --------------------------------------------------------------------------------- Constructor from Existing Pointer
+     * @brief Constructor from an existing pointer. Does not take ownership — the caller
+     * is responsible for the lifetime of the pointed-to memory.
+     * @param ptr A pointer to memory that is at least 64-byte aligned
+     * @param size_bytes The size of the buffer in bytes
+     */
+    z_stream(T* ptr, size_t size_bytes) : data_(ptr), size_bytes_(size_bytes) {
+        if ((reinterpret_cast<uintptr_t>(ptr) & 0x3F) != 0) {
+            std::string error_msg = "Pointer provided to z_stream constructor is"
+                    " not 64-byte aligned: "
+                    + std::to_string(reinterpret_cast<uintptr_t>(ptr));
+            throw std::invalid_argument(error_msg);
+        }
     }
     /** --------------------------------------------------------------------------------- Destructor
      * @brief Destructor for z_stream. Frees the allocated memory for the stream.
@@ -90,8 +99,8 @@ public:
      * @brief Creates a deep copy of the z_stream with the same number of zvecs and data.
      */
     z_stream clone() const {
-        z_stream copy(num_zvecs_);
-        std::memcpy(copy.data_, data_, num_zvecs_ << 6); // num_zvecs * 64 bytes
+        z_stream copy(size_bytes_);
+        std::memcpy(copy.data_, data_, size_bytes_);
         return copy;
     }
 };
@@ -103,14 +112,8 @@ public:
 struct aligned_pointer {
     void* ptr;
     explicit aligned_pointer(void* p) : ptr(p) {
-        if constexpr (std::alignment_of_v<std::max_align_t> > 64) {
-            if (reinterpret_cast<uintptr_t>(ptr) % 64 != 0) {
-                throw std::bad_alloc();
-            }
-        } else {
-            if (reinterpret_cast<uintptr_t>(ptr) % std::alignment_of_v<std::max_align_t> != 0) {
-                throw std::bad_alloc();
-            }
+        if ((reinterpret_cast<uintptr_t>(ptr) & 0x3F) != 0) {
+            throw std::bad_alloc();
         }
     }
 };

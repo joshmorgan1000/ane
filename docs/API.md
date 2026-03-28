@@ -46,9 +46,49 @@ add.exec({a2, b2, c2});  // same program, different data
 
 ---
 
-## Example: Dot Product
+## Example: Dot Product (Program Builder)
 
-Multiply two arrays element-wise and accumulate the results. This is the building block for distance calculations, similarity scores, and matrix math.
+The `fdot_zreg` instruction computes a full dot product — multiply and horizontal sum — in one opcode. Use width=4 to process 64 elements per call:
+
+```cpp
+ane::program dot;
+
+// z0 = accumulator (starts zeroed by default)
+dot.emit(ane::Op::broadcast_scalar_zreg, uint8_t(0), 0.0f);
+
+dot.begin_loop(16);  // 16 iterations × 64 elements = 1024 total
+    // Load 64 input elements into z1:z4
+    for (uint8_t v = 0; v < 4; v++) {
+        dot.emit(ane::Op::load_param, uint8_t(0));           // z0 = next 16 floats from param[0]
+        dot.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(1 + v));
+        dot.emit(ane::Op::advance_param, uint8_t(0));
+    }
+    // Load 64 weight elements into z5:z8
+    for (uint8_t v = 0; v < 4; v++) {
+        dot.emit(ane::Op::load_param, uint8_t(1));
+        dot.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(5 + v));
+        dot.emit(ane::Op::advance_param, uint8_t(1));
+    }
+    // Restore accumulator, then accumulate 4 products element-wise
+    dot.emit(ane::Op::mov_zreg, uint8_t(9), uint8_t(0));    // z0 = saved accumulator
+    dot.emit(ane::Op::fmla_wide_zreg, uint8_t(4));           // z0 += z1*z5 + z2*z6 + z3*z7 + z4*z8
+    dot.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(9));    // save accumulator
+dot.end_loop();
+
+// Horizontal sum to scalar
+dot.emit(ane::Op::mov_zreg, uint8_t(9), uint8_t(0));
+dot.emit(ane::Op::faddv_zreg, uint8_t(0), uint8_t(0));      // z0 = broadcast(sum(z0))
+dot.emit(ane::Op::store, reinterpret_cast<uintptr_t>(result));
+
+dot.emit(ane::Op::set_param, uint8_t(0), reinterpret_cast<uintptr_t>(vec_a));
+dot.emit(ane::Op::set_param, uint8_t(1), reinterpret_cast<uintptr_t>(vec_b));
+dot.exec();
+// result[0..15] all contain the scalar dot product
+```
+
+## Example: Dot Product (DSL)
+
+The same operation using the scripting DSL — the compiler handles register allocation:
 
 ```cpp
 ane::script dot(R"(
@@ -72,16 +112,14 @@ ane::script dot(R"(
     sum.save(params[2]);
 )");
 
-// params[3] points to a zeroed 64-byte buffer (for initializing sum)
 alignas(64) float zero_buf[16] = {};
 dot.exec({vec_a, vec_b, result_buf, zero_buf});
-// result_buf now holds 16 partial sums — add them up on the CPU to get the final scalar
+// result_buf holds 16 partial sums — add on CPU to get the scalar
 ```
 
-This shows a few new things:
-- **Three variables** — `a`, `b`, and `sum`. The compiler assigns each one a separate internal slot.
-- **Accumulation** — `sum` persists across loop iterations. You load it once before the loop, update it inside, and store it after.
-- **The loop only advances two pointers** — `sum` stays in a variable, never touching memory until the final `save`.
+The DSL version uses element-wise multiply + add. The program builder version uses `fmla_wide_zreg` which is more efficient (4 products per opcode dispatch) but requires manual register management.
+
+**Multi-vector variables** (`ZVEC2_F32`, `ZVEC4_F32`) let the DSL compiler auto-expand operations across wider data. See "Declaring Variables" in the DSL Reference below.
 
 ---
 
@@ -161,9 +199,14 @@ gemm.exec();
 ### Declaring Variables
 
 ```
-name: ZVEC_F32;
+name: ZVEC_F32;       // 1 slot  — holds 16 floats (64 bytes)
+name: ZVEC2_F32;      // 2 slots — holds 32 floats (128 bytes)
+name: ZVEC4_F32;      // 4 slots — holds 64 floats (256 bytes)
 ```
-Creates a variable that holds 16 float32 values. You can declare up to 30 variables.
+
+`ZVEC_F32` is the single-width type. `ZVEC2_F32` and `ZVEC4_F32` declare **multi-vector** variables that occupy 2 or 4 consecutive internal slots. The compiler tracks the width and auto-expands all operations — loads, saves, and arithmetic are emitted once per slot.
+
+With 30 slots total, you can fit 30 single-width variables, 15 double-width, or 7 quad-width (with 2 slots left over).
 
 ### Loading and Saving Data
 
@@ -184,6 +227,13 @@ result = a * b;       // multiplication
 ```
 
 The destination can be the same as a source: `x = x + y;` is fine.
+
+For multi-vector variables, the compiler expands each operation across all slots:
+```
+a: ZVEC4_F32;
+b: ZVEC4_F32;
+c = a + b;            // emits 4 add instructions (one per slot pair)
+```
 
 ### Loops
 
@@ -211,6 +261,28 @@ s.exec({ptr0, ptr1, ptr2});   // params[0]=ptr0, params[1]=ptr1, etc.
 ```
 
 The script compiles on first `exec()` and caches the result. Subsequent calls with different pointers reuse the compiled program.
+
+### Intrinsic Functions
+
+High-level operations (GEMM, softmax, etc.) can be called directly from DSL scripts as intrinsic functions. Pointer arguments use `params[N]` — the actual memory addresses are filled in at `exec()` time.
+
+```
+// fp32 matrix multiply: C = A × B (no transpose, alpha=1, beta=0)
+sgemm(0, 128, 256, 64, 64, 256, 256, 1.0, 0.0, params[0], params[1], params[2]);
+
+// bf16 matrix multiply with transposed B
+bfgemm(2, 128, 256, 64, 64, 256, 256, 1.0, 0.0, params[0], params[1], params[2]);
+
+// Partial softmax for distributed computation
+softmax_partial(1024, params[0], params[1], params[2], params[3]);
+
+// RMS normalization
+rms_norm(4096, 0.00001, params[0], params[1], params[2]);
+```
+
+Available intrinsics: `sgemm`, `bfgemm`, `igemm`, `ugemm`, `usgemm`, `gemm_tile`, `softmax`, `softmax_partial`, `softmax_correct`, `reduce_sum_sq`, `reduce_col_sum`, `rms_norm`, `layer_norm`, `silu`, `silu_backward`, `gelu`, `softmax_backward`, `rope`, `causal_mask`, `adam_step`, `q8_0_gemv`, `q4_0_gemv`, `elementwise_add`, `elementwise_mul`, `reduce_sum`.
+
+Arguments are integer literals, float literals (`1.0`, `0.5f`), or `params[N]` references. Negative floats are written as `-1.0`. See the Instruction Catalog below for the parameter order of each operation.
 
 ---
 
@@ -283,11 +355,281 @@ When using the DSL, you don't need most of these directly — the compiler gener
 
 ### BLAS Matrix Multiply
 
+All CBLAS-style GEMM ops share the same encoding and semantics: `C = alpha × op(A) × op(B) + beta × C`. Flags bit 0 = transpose A, bit 1 = transpose B. All use zero heap allocation — computation is entirely in ZA tiles and a 128-byte stack frame.
+
+| Instruction | Parameters | Inputs | Accumulator | K alignment |
+|-------------|-----------|--------|-------------|-------------|
+| `cblas_sgemm` | `flags:u8`, `M:u32`, `N:u32`, `K:u32`, `lda:u32`, `ldb:u32`, `ldc:u32`, `alpha:f32`, `beta:f32`, `A:u64`, `B:u64`, `C:u64` | fp32 × fp32 | fp32 (FMOPA) | K % 16 == 0 |
+| `cblas_bfgemm` | *(same encoding)* | bf16 × bf16 | fp32 (BFMOPA) | K % 32 == 0 |
+| `cblas_igemm` | *(same encoding)* | i8 × i8 | i32→fp32 (SMOPA) | K % 64 == 0 |
+| `cblas_ugemm` | *(same encoding)* | u8 × u8 | i32→fp32 (UMOPA) | K % 64 == 0 |
+| `cblas_usgemm` | *(same encoding)* | u8 × i8 | i32→fp32 (USMOPA) | K % 64 == 0 |
+
+All overwrite v0-v21 and the scratchpad.
+
+For `bfgemm`: A and B are bf16 arrays, C is fp32. lda/ldb are in bf16 elements, ldc in fp32 elements.
+
+For `igemm`/`ugemm`/`usgemm`: A and B are i8/u8 arrays, C is fp32. lda/ldb are in byte elements, ldc in fp32 elements. The int32 accumulator is converted to fp32 and multiplied by alpha before storing.
+
+**DSL usage:**
+```
+sgemm(0, 128, 256, 64, 64, 256, 256, 1.0, 0.0, params[0], params[1], params[2]);
+bfgemm(0, 128, 256, 64, 64, 256, 256, 1.0, 0.0, params[0], params[1], params[2]);
+igemm(0, 128, 256, 128, 128, 256, 256, 0.00390625, 0.0, params[0], params[1], params[2]);
+```
+
+### Tile-Range GEMM (Multi-Threaded / Multi-Node)
+
+Computes only a subset of output tiles from a fp32 GEMM. Same inner kernel as `cblas_sgemm`, but the outer tile loop is bounded by `(ti_start, tj_start, ti_count, tj_count)`. Assign different tile ranges to different threads or nodes.
+
 | Instruction | Parameters | What it does | Overwrites |
 |-------------|-----------|--------------|------------|
-| `cblas_sgemm` | `flags:u8`, `M:u32`, `N:u32`, `K:u32`, `lda:u32`, `ldb:u32`, `ldc:u32`, `alpha:f32`, `beta:f32`, `A:u64`, `B:u64`, `C:u64` | C = alpha×op(A)×op(B) + beta×C | v0-v21, scratchpad |
+| `gemm_tile_fp32` | `flags:u8`, `M:u32`, `N:u32`, `K:u32`, `lda:u32`, `ldb:u32`, `ldc:u32`, `alpha:f32`, `beta:f32`, `ti_start:u32`, `tj_start:u32`, `ti_count:u32`, `tj_count:u32`, `A:u64`, `B:u64`, `C:u64` | C[ti..ti+ti_count, tj..tj+tj_count] = alpha×op(A)×op(B) + beta×C | v0-v21, scratchpad |
 
-flags: bit 0 = transpose A, bit 1 = transpose B.
+M and N are the **full** matrix dimensions (used for edge predication on the last tile). ti_start should be a multiple of 16, tj_start a multiple of 32.
+
+**Multi-threaded example** (C++, 4 threads each computing a quarter of the rows):
+```cpp
+// Thread i computes rows [i*quarter .. (i+1)*quarter)
+uint32_t quarter = (M + 3) / 4;
+for (int t = 0; t < 4; t++) {
+    // Each thread builds its own program:
+    ane::program p;
+    p.emit(ane::Op::gemm_tile_fp32,
+        uint8_t(0), M, N, K, lda, ldb, ldc, 1.0f, 0.0f,
+        uint32_t(t * quarter),  // ti_start
+        uint32_t(0),            // tj_start
+        uint32_t(quarter),      // ti_count
+        uint32_t(N),            // tj_count (all columns)
+        ptr_A, ptr_B, ptr_C);
+    p.exec();  // each thread runs in its own smstart/smstop session
+}
+```
+
+**DSL usage:**
+```
+gemm_tile(0, 1024, 1024, 512, 512, 1024, 1024, 1.0, 0.0, 0, 0, 256, 1024, params[0], params[1], params[2]);
+```
+
+### Decomposition Building Blocks
+
+These ops split reductions into partial computations that can be distributed across threads or nodes, then merged.
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `softmax_partial_fp32` | `dim:u32`, `in:u64`, `out:u64`, `max_out:u64`, `sum_out:u64` | out = exp(in - max), stores max and sum(exp) scalars | v0-v7, v16-v19, v26-v31 |
+| `softmax_correct_fp32` | `dim:u32`, `local_max:f32`, `global_max:f32`, `inout:u64`, `sum_ptr:u64` | inout *= exp(local_max - global_max), corrects sum | v0, v16, v28-v31 |
+| `reduce_sum_sq_fp32` | `dim:u32`, `in:u64`, `out:u64` | out = sum(in[i]²) | v0-v1 |
+| `reduce_col_sum_fp32` | `M:u32`, `N:u32`, `stride:u32`, `src:u64`, `dst:u64` | dst[j] = sum(src[i*stride+j]) — bias gradient | v0-v1 |
+
+dim and N must be multiples of 16 (cntw).
+
+**Distributed softmax pattern** (across N shards):
+
+```
+// Step 1: Each shard computes partial softmax
+softmax_partial(shard_dim, params[0], params[1], params[2], params[3]);
+// params[2] = &local_max, params[3] = &local_sum
+
+// Step 2: All-reduce to find global_max = max(all local_max values)
+//         (done by your communication layer, not by ANE)
+
+// Step 3: Each shard applies correction
+softmax_correct(shard_dim, local_max, global_max, params[1], params[3]);
+
+// Step 4: All-reduce to find global_sum = sum(all corrected local_sum values)
+
+// Step 5: Each shard divides by global_sum
+//         Use elementwise_mul with scale = 1.0/global_sum
+elementwise_mul(shard_dim, params[1], params[4], params[1]);
+// where params[4] points to a buffer filled with 1.0/global_sum
+```
+
+**Distributed RMS norm pattern:**
+
+```
+// Step 1: Each shard computes partial sum of squares
+reduce_sum_sq(shard_dim, params[0], params[1]);
+
+// Step 2: All-reduce sum across shards, divide by total_dim, add eps
+//         scale = rsqrt(global_sum_sq / total_dim + eps)
+//         (done on CPU or with frsqrt_zreg)
+
+// Step 3: Each shard applies: out[i] = in[i] * scale * weight[i]
+//         Use existing rms_norm_fp32 with pre-computed scale, or compose
+//         from fscale_zreg + fmul_zreg in a loop
+```
+
+### Dot Product & Wide FMA
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `fdot_zreg` | `width:u8` | Dot product with jump-point per width. See below. | v0 |
+| `fmla_wide_zreg` | `width:u8` | Multi-product accumulate into v0. See below. | v0 |
+
+**`fdot_zreg`** computes a scalar dot product and broadcasts the result to all 16 lanes of v0:
+
+| Width | Input A | Input B | Formula |
+|-------|---------|---------|---------|
+| 1 | v0 | v1 | `v0 = broadcast(sum(v0[i] × v1[i]))` — 16 products |
+| 2 | v0, v1 | v2, v3 | `v0 = broadcast(sum(v0·v2) + sum(v1·v3))` — 32 products |
+| 4 | v0–v3 | v4–v7 | `v0 = broadcast(sum(v0·v4) + ... + sum(v3·v7))` — 64 products |
+
+The width selects a different code path inside the handler — no extra dispatch overhead.
+
+**`fmla_wide_zreg`** accumulates multiple element-wise products into v0 (no horizontal sum):
+
+| Width | Formula |
+|-------|---------|
+| 1 | `v0 += v1 × v2` |
+| 2 | `v0 += v1×v3 + v2×v4` |
+| 4 | `v0 += v1×v5 + v2×v6 + v3×v7 + v4×v8` |
+
+Use `fmla_wide` in a loop, then `faddv_zreg` at the end to reduce to scalar. This is the building block for GEMV: load input chunks into v1–v4, dequantized weights into v5–v8, accumulate with width=4.
+
+### Clamp / Max / Min
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `fclamp_zreg` | `flags:u8`, `dst:u8`, `src:u8`, `lo:f32`, `hi:f32` | Clamp, max, or min per element | dst, v0-v1 |
+
+flags: 3 = clamp(lo..hi), 1 = max(x, lo) (ReLU when lo=0), 2 = min(x, hi).
+
+### Scalar Operations
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `broadcast_scalar_zreg` | `dst:u8`, `value:f32` | Fill all 16 lanes of dst with value | dst |
+| `fscale_zreg` | `dst:u8`, `src:u8`, `scalar:f32` | dst = src × scalar | dst, v0 |
+| `faddv_zreg` | `dst:u8`, `src:u8` | Horizontal sum: dst = broadcast(sum(src)) | dst |
+| `frsqrt_zreg` | `dst:u8`, `src:u8` | dst[i] = 1/sqrt(src[i]) | dst, v0 |
+
+### Transformer Kernels
+
+These process entire arrays from memory — designed for LLM inference and training.
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `rms_norm_fp32` | `dim:u32`, `eps:f32`, `in:u64`, `weight:u64`, `out:u64` | RMS normalization per row | v0-v4, v16 |
+| `layer_norm_fp32` | `dim:u32`, `eps:f32`, `in:u64`, `gamma:u64`, `beta:u64`, `out:u64` | Full layer normalization (mean subtraction + variance) | v0-v4, v16-v17 |
+| `softmax_fp32` | `dim:u32`, `in:u64`, `out:u64` | Numerically stable softmax | v0-v7, v16-v19 |
+| `silu_fp32` | `count:u32`, `in:u64`, `out:u64` | SiLU activation: x·sigmoid(x) | v0-v4, v16-v19 |
+| `gelu_fp32` | `count:u32`, `in:u64`, `out:u64` | GeLU activation (tanh approximation) | v0-v7, v16-v19 |
+| `rope_fp32` | `dim:u32`, `pos:u32`, `theta:f32`, `in:u64`, `out:u64` | Rotary position embedding | v0-v7, v20-v31 |
+| `causal_mask_fp32` | `dim:u32`, `stride:u32`, `ptr:u64` | Fill upper triangle with -inf for causal attention | v0, v16 |
+
+`layer_norm_fp32` computes full layer normalization: `out = ((x - mean) / sqrt(var + eps)) * gamma + beta`. Three passes over the data: sum for mean, sum-of-squared-deviations for variance, then normalize+scale+shift. For Llama-family models, use `rms_norm_fp32` instead.
+
+`gelu_fp32` uses the tanh approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`.
+
+`causal_mask_fp32` sets `ptr[i * stride + j] = -inf` for all `j > i`. Apply this to attention scores before softmax for autoregressive (decoder) models. dim is both the row and column count (square matrix). stride is the row stride in fp32 elements.
+
+### Backward Passes
+
+Training backward kernels for the operations above. These compute gradients with respect to the inputs.
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `silu_backward_fp32` | `dim:u32`, `x:u64`, `dy:u64`, `dx:u64` | dx = dy · σ(x) · (1 + x·(1-σ(x))) | v0-v7, v26-v31 |
+| `softmax_backward_fp32` | `dim:u32`, `s:u64`, `dy:u64`, `dx:u64` | dx = s · (dy - sum(s·dy)) | v0-v1, v16 |
+
+`silu_backward_fp32` takes the forward input `x` (not the forward output), the upstream gradient `dy`, and writes `dx`. It recomputes sigmoid internally.
+
+`softmax_backward_fp32` takes the forward softmax output `s`, the upstream gradient `dy`, and writes `dx`. Two passes: first computes `dot = sum(s·dy)`, then `dx = s·(dy - dot)`.
+
+dim must be a multiple of 16 for both.
+
+### Optimizer
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `adam_step_fp32` | `count:u32`, `lr:f32`, `beta1:f32`, `beta2:f32`, `eps:f32`, `t:u32`, `params:u64`, `grads:u64`, `m:u64`, `v:u64` | Fused Adam update step | v0-v6, v16-v22 |
+
+Single pass over all four arrays. Updates `m` and `v` in-place, then applies the bias-corrected update to `params`. The timestep `t` is 1-based (first call uses t=1). Bias correction factors `(1-β1^t)` and `(1-β2^t)` are pre-computed before the loop.
+
+**DSL usage:**
+```
+adam_step(4096, 0.001, 0.9, 0.999, 0.00000001, 1, params[0], params[1], params[2], params[3]);
+```
+
+### Flash Attention
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `flash_attention_fp32` | `N:u32`, `d:u32`, `flags:u8`, `Q:u64`, `K:u64`, `V:u64`, `out:u64` | out = softmax(Q@K^T/sqrt(d)) @ V | all ZA tiles, v0-v24 |
+
+Fused tiled attention using the FlashAttention online softmax algorithm. Processes one attention head at a time. Tiles the Q@K^T score matrix into 16×16 blocks — never materializes the full N×N score matrix.
+
+- `N` = sequence length (must be multiple of 16)
+- `d` = head dimension (must be multiple of 16)
+- `flags` bit 0 = causal mask (mask where key position > query position)
+- Q, K, V: N×d fp32 row-major matrices
+- out: N×d fp32 output (zeroed internally before computation)
+
+For multi-head attention, call once per head with offset pointers. For grouped-query attention, share K/V pointers across the query heads in each group.
+
+**DSL usage:**
+```
+// Single head, seq_len=256, head_dim=64, causal
+flash_attention(256, 64, 1, params[0], params[1], params[2], params[3]);
+```
+
+**Multi-head attention (C++):**
+```cpp
+for (int h = 0; h < n_heads; h++) {
+    size_t offset = h * seq_len * head_dim * sizeof(float);
+    ane::program attn;
+    attn.emit(ane::Op::flash_attention_fp32,
+        uint32_t(seq_len), uint32_t(head_dim), uint8_t(1),  // causal
+        reinterpret_cast<uintptr_t>(Q + offset),
+        reinterpret_cast<uintptr_t>(K + offset),
+        reinterpret_cast<uintptr_t>(V + offset),
+        reinterpret_cast<uintptr_t>(out + offset));
+    attn.exec();
+}
+```
+
+### Quantized GEMV
+
+All quantized GEMV ops share the same encoding: `[opcode][M:u32][K:u32][in:u64][W:u64][out:u64]`. `in` is fp32, `W` is the quantized weight matrix in the specified block format, `out` is fp32. Computes `output[m] = sum_k dequant(W[m,k]) * input[k]` for all M rows.
+
+| Instruction | Parameters | Block Size | Bits/Weight | K alignment | What it does |
+|-------------|-----------|------------|-------------|-------------|--------------|
+| `q8_0_gemv` | `M:u32`, `K:u32`, `in:u64`, `W:u64`, `out:u64` | 34 bytes/32 vals | 8.5 | K % 32 == 0 | fp16 scale + 32×int8 |
+| `q4_0_gemv` | *(same)* | 18 bytes/32 vals | 4.5 | K % 32 == 0 | fp16 scale + 16 packed bytes (4-bit nibbles) |
+| `q4_k_gemv` | *(same)* | 144 bytes/256 vals | 4.5 | K % 256 == 0 | Super-block: fp16 d/dmin + 6-bit sub-block scales + 4-bit quants |
+| `q2_k_gemv` | *(same)* | 84 bytes/256 vals | 2.625 | K % 256 == 0 | Super-block: 4-bit sub-block scales + 2-bit quants |
+| `q3_k_gemv` | *(same)* | 110 bytes/256 vals | 3.4375 | K % 256 == 0 | Super-block: 2-bit low + 1-bit high plane + 6-bit signed scales |
+| `q5_k_gemv` | *(same)* | 176 bytes/256 vals | 5.5 | K % 256 == 0 | Super-block: 4-bit low + 1-bit high plane + 6-bit scales |
+| `q6_k_gemv` | *(same)* | 210 bytes/256 vals | 6.5625 | K % 256 == 0 | Super-block: 4-bit low + 2-bit high + int8 scales |
+
+The K-quant formats (Q2_K through Q6_K) use **super-blocks** of 256 values with per-sub-block scales for higher quality at low bit widths. The dequantization uses vectorized bit extraction via SVE shifts and masks — each sub-block is processed as 16 elements at a time.
+
+**DSL usage:**
+```
+q4_k_gemv(128, 4096, params[0], params[1], params[2]);
+// 128 output rows, K=4096, fp32 input, Q4_K weights, fp32 output
+```
+
+### Embedding Lookup (GET_ROWS)
+
+| Instruction | Parameters | Table Format | What it does |
+|-------------|-----------|-------------|--------------|
+| `get_rows_fp32` | `n_rows:u32`, `dim:u32`, `table:u64`, `indices:u64`, `out:u64` | fp32 | Copy rows by index |
+| `get_rows_q8_0` | *(same)* | Q8_0 | Lookup + dequant to fp32 |
+| `get_rows_q4_0` | *(same)* | Q4_0 | Lookup + dequant to fp32 |
+
+Gather `n_rows` rows from an embedding table by integer index. `indices` is a `uint32_t` array of row indices. Each selected row (`dim` elements) is dequantized (if quantized) and written as fp32 to the output.
+
+- `dim` must be a multiple of 16 for fp32, 32 for Q8_0/Q4_0
+- The table can be arbitrarily large (vocab_size × dim); only the indexed rows are touched
+- Output is contiguous: `n_rows × dim` fp32 values
+
+**DSL usage:**
+```
+// Look up 4 token embeddings from a Q4_0 table with dim=4096
+get_rows_q4_0(4, 4096, params[0], params[1], params[2]);
+```
 
 ### Fused Array Operations
 
@@ -307,7 +649,16 @@ These process entire arrays from memory with internal loops — no `loop_begin`/
 | `cosine_dist_f64` | `dim:u32`, `a:u64`, `b:u64`, `out:u64` | (float64) | v0-v1, v4-v6 |
 | `normalize_fp32` | `dim:u32`, `vec:u64` | vec[i] /= ‖vec‖ (in-place) | v0, v4, v16 |
 | `reduce_sum_fp32` | `count:u32`, `src:u64`, `out:u64` | out = sum of all elements | v0-v1 |
+| `reduce_col_sum_fp32` | `M:u32`, `N:u32`, `stride:u32`, `src:u64`, `dst:u64` | dst[j] = sum(src[i*stride + j]) for i in 0..M-1 | v0-v1 |
 | `count_matches` | `count:u32`, `pred:u64`, `labels:u64`, `out:u64` | out = number of matches | v0-v1 |
+
+`reduce_col_sum_fp32` computes the column-wise sum of an M×N matrix — the bias gradient operation in dense backward passes. N must be a multiple of 16. The stride parameter is the row stride in fp32 elements (typically equal to the full matrix width, which may be larger than N when operating on a column subrange).
+
+**DSL usage:**
+```
+// Sum 256 rows of 128 columns with row stride 512
+reduce_col_sum(256, 128, 512, params[0], params[1]);
+```
 
 ### Fused Matrix Multiply
 
