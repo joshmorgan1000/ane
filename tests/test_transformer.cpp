@@ -395,13 +395,14 @@ static void test_reduce_and_rsqrt() {
         auto* in  = static_cast<float*>(alloc(64));
         auto* out = static_cast<float*>(alloc(64));
         for (int i = 0; i < 16; i++) in[i] = (float)(i + 1);
-        ane::program p;
-        p.emit(ane::Op::load, reinterpret_cast<uintptr_t>(in));
-        p.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(5));
-        p.emit(ane::Op::faddv_zreg, uint8_t(5), uint8_t(5));
-        p.emit(ane::Op::mov_zreg, uint8_t(5), uint8_t(0));
-        p.emit(ane::Op::store, reinterpret_cast<uintptr_t>(out));
-        p.exec();
+        ane::script sc(R"(
+            load_raw(params[0]);
+            mov(0, 5);
+            faddv(5, 5);
+            mov(5, 0);
+            store_raw(params[1]);
+        )");
+        sc.exec({in, out});
         check_scalar("faddv [1..16] = 136", out[0], 136.0f, 1e-3f);
         // All 16 lanes should have the same broadcast sum
         bool all_same = true;
@@ -417,13 +418,14 @@ static void test_reduce_and_rsqrt() {
         auto* out = static_cast<float*>(alloc(64));
         auto* ref = static_cast<float*>(alloc(64));
         for (int i = 0; i < 16; i++) { float v = (float)((i + 1) * (i + 1)); in[i] = v; ref[i] = 1.0f / sqrtf(v); }
-        ane::program p;
-        p.emit(ane::Op::load, reinterpret_cast<uintptr_t>(in));
-        p.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(5));
-        p.emit(ane::Op::frsqrt_zreg, uint8_t(5), uint8_t(5));
-        p.emit(ane::Op::mov_zreg, uint8_t(5), uint8_t(0));
-        p.emit(ane::Op::store, reinterpret_cast<uintptr_t>(out));
-        p.exec();
+        ane::script sc(R"(
+            load_raw(params[0]);
+            mov(0, 5);
+            frsqrt(5, 5);
+            mov(5, 0);
+            store_raw(params[1]);
+        )");
+        sc.exec({in, out});
         check("frsqrt [1,4,9,...256]", out, ref, 16, 1e-5f);
         std::free(in); std::free(out); std::free(ref);
     }
@@ -434,11 +436,12 @@ static void test_broadcast_scale() {
     printf("\n── Broadcast Scalar + Scale ──\n");
     {
         auto* out = static_cast<float*>(alloc(64));
-        ane::program p;
-        p.emit(ane::Op::broadcast_scalar_zreg, uint8_t(5), 3.14f);
-        p.emit(ane::Op::mov_zreg, uint8_t(5), uint8_t(0));
-        p.emit(ane::Op::store, reinterpret_cast<uintptr_t>(out));
-        p.exec();
+        ane::script sc(R"(
+            broadcast(5, 3.14);
+            mov(5, 0);
+            store_raw(params[0]);
+        )");
+        sc.exec({out});
         float ref[16]; for (int i = 0; i < 16; i++) ref[i] = 3.14f;
         check("broadcast 3.14 to all lanes", out, ref, 16, 1e-5f);
         std::free(out);
@@ -448,13 +451,14 @@ static void test_broadcast_scale() {
         auto* out = static_cast<float*>(alloc(64));
         auto* ref = static_cast<float*>(alloc(64));
         for (int i = 0; i < 16; i++) { in[i] = (float)(i + 1); ref[i] = (float)(i + 1) * 0.5f; }
-        ane::program p;
-        p.emit(ane::Op::load, reinterpret_cast<uintptr_t>(in));
-        p.emit(ane::Op::mov_zreg, uint8_t(0), uint8_t(5));
-        p.emit(ane::Op::fscale_zreg, uint8_t(5), uint8_t(5), 0.5f);
-        p.emit(ane::Op::mov_zreg, uint8_t(5), uint8_t(0));
-        p.emit(ane::Op::store, reinterpret_cast<uintptr_t>(out));
-        p.exec();
+        ane::script sc(R"(
+            load_raw(params[0]);
+            mov(0, 5);
+            fscale(5, 5, 0.5);
+            mov(5, 0);
+            store_raw(params[1]);
+        )");
+        sc.exec({in, out});
         check("fscale [1..16] * 0.5", out, ref, 16, 1e-5f);
         std::free(in); std::free(out); std::free(ref);
     }

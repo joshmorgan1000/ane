@@ -171,7 +171,9 @@ enum class Op : uint8_t {
     get_rows_fp32                = 0x7B,  ///< Embedding lookup: gather rows by index from fp32 table
     get_rows_q8_0                = 0x7C,  ///< Embedding lookup + dequant from Q8_0 table
     get_rows_q4_0                = 0x7D,  ///< Embedding lookup + dequant from Q4_0 table
-    NUM_OPCODES                  = 0x7E,
+    dense_strided_fp32           = 0x7E,  ///< Fused matmul+bias+ReLU with explicit strides (lda, ldb, ldc)
+    advance_param_stride         = 0x7F,  ///< Advance param[idx] by stride bytes, [idx:u8][stride:u32]
+    NUM_OPCODES                  = 0x80,
 };
 /** --------------------------------------------------------------------------------------------------------- IsZVector / IsZStream helpers
  * @brief Type trait helpers to detect z_vector<T> and z_stream<T> without requiring T::value_type
@@ -219,15 +221,17 @@ inline void dispatch(Op op, Args... args) {
 /** --------------------------------------------------------------------------------------------------------- Program
  * @class program
  * @brief Builds a multi-opcode bytecode program that executes in a single streaming session.
- *  - Use emit() to append opcodes and their arguments to the program buffer.
+ *  - Use the DSL script compiler (ane::script) to build programs from source text.
  *  - Call exec() to execute the entire program in one smstart/smstop pair.
  *  - Z-registers and ZA tiles persist across opcodes within the same program.
  */
+class Compiler;  // Forward declaration — defined in parser.cpp
 class program {
+    friend class Compiler;  ///< DSL compiler needs emit/mark/patch access
+    friend class script;    ///< script::exec() needs emit/mark/patch/append access
 private:
     std::vector<uint8_t> bytecodes_;  ///< Accumulated bytecode buffer
     std::vector<size_t> loop_marks_;  ///< Stack of loop body start offsets for begin_loop/end_loop
-public:
     /** --------------------------------------------------------------------------------------------- Emit
      * @brief Appends a single opcode and its arguments to the program buffer.
      * @param op The opcode to emit
@@ -259,6 +263,27 @@ public:
      * @return Current offset in bytes from the start of the program
      */
     size_t mark() const { return bytecodes_.size(); }
+    /** --------------------------------------------------------------------------------------------- Patch
+     * @brief Patches a value at a specific byte offset in the bytecodes buffer.
+     *  - Used by the DSL compiler for fixups (e.g., patching loop counts at label sites).
+     * @param offset Byte offset into the bytecodes buffer
+     * @param value The value to write
+     */
+    void patch_u8(size_t offset, uint8_t value) { bytecodes_[offset] = value; }
+    void patch_u32(size_t offset, uint32_t value) {
+        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
+    }
+    void patch_u64(size_t offset, uint64_t value) {
+        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
+    }
+    /** --------------------------------------------------------------------------------------------- Append
+     * @brief Appends another program's bytecodes to this one.
+     * @param other The program whose bytecodes to append
+     */
+    void append(const program& other) {
+        bytecodes_.insert(bytecodes_.end(), other.bytecodes_.begin(), other.bytecodes_.end());
+    }
+public:
     /** --------------------------------------------------------------------------------------------- Exec
      * @brief Executes the entire program in a single streaming session (one smstart/smstop pair).
      *  - All z-registers and ZA tiles persist across opcodes within this call.
@@ -302,26 +327,6 @@ public:
      * @brief Returns the current size of the bytecode buffer in bytes.
      */
     size_t size() const { return bytecodes_.size(); }
-    /** --------------------------------------------------------------------------------------------- Patch U32
-     * @brief Patches a uint32_t value at a specific byte offset in the bytecodes buffer.
-     *  - Used by the DSL compiler for fixups (e.g., patching loop counts at label sites).
-     * @param offset Byte offset into the bytecodes buffer
-     * @param value The uint32_t value to write
-     */
-    void patch_u8(size_t offset, uint8_t value) { bytecodes_[offset] = value; }
-    void patch_u32(size_t offset, uint32_t value) {
-        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
-    }
-    void patch_u64(size_t offset, uint64_t value) {
-        std::memcpy(&bytecodes_[offset], &value, sizeof(value));
-    }
-    /** --------------------------------------------------------------------------------------------- Append
-     * @brief Appends another program's bytecodes to this one.
-     * @param other The program whose bytecodes to append
-     */
-    void append(const program& other) {
-        bytecodes_.insert(bytecodes_.end(), other.bytecodes_.begin(), other.bytecodes_.end());
-    }
     /** --------------------------------------------------------------------------------------------- Begin Loop
      * @brief Emits a loop_begin opcode and records the body start for end_loop().
      * @param count Number of iterations
@@ -380,13 +385,24 @@ struct PtrPatch {
     size_t bytecode_offset;  ///< Offset within compiled bytecodes where the u64 placeholder sits
     uint8_t param_idx;       ///< Which params[N] to fill in (0-7)
 };
+/** --------------------------------------------------------------------------------------------------------- U32Patch
+ * @struct U32Patch
+ * @brief Records a bytecode offset where a params[N] runtime u32 placeholder needs to be patched
+ * with the actual scalar value at exec() time. Used when intrinsic U32 arguments reference
+ * params[N] instead of literal values, enabling runtime-configurable dimensions and strides.
+ */
+struct U32Patch {
+    size_t bytecode_offset;  ///< Offset within compiled bytecodes where the u32 placeholder sits
+    uint8_t param_idx;       ///< Which scalar params[N] to fill in (0-7)
+};
 class script {
 public:
     std::string source;      ///< DSL source text
 private:
     program compiled_;        ///< Compiled bytecodes (without set_param preamble)
-    std::vector<PtrPatch> patches_;  ///< Pointer fixups for intrinsic function calls
-    bool compiled_valid_ = false;    ///< Whether compiled_ is up to date
+    std::vector<PtrPatch> patches_;      ///< Pointer fixups for intrinsic function calls
+    std::vector<U32Patch> u32_patches_;  ///< Scalar u32 fixups for runtime intrinsic arguments
+    bool compiled_valid_ = false;        ///< Whether compiled_ is up to date
 public:
     script(const char* src);
     script(const std::string& src);
@@ -401,6 +417,15 @@ public:
      * @param params Ordered list of parameter pointers (matches params[0], params[1], etc.)
      */
     void exec(std::initializer_list<const void*> params);
+    /** --------------------------------------------------------------------------------------------- Exec with Scalars
+     * @brief Executes the script with separate pointer and scalar parameter lists.
+     *  - Pointer params map to params[N] in PTR positions (intrinsic pointer arguments).
+     *  - Scalar params map to params[N] in U32 positions (runtime-configurable dimensions/strides).
+     * @param ptrs Ordered list of parameter pointers
+     * @param scalars Ordered list of runtime u32 scalar values (dimensions, strides, counts)
+     */
+    void exec(std::initializer_list<const void*> ptrs,
+              std::initializer_list<uint32_t> scalars);
 };
 } // namespace ane
 #else

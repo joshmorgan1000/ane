@@ -39,6 +39,7 @@ enum class TokenType {
     STAR,           ///< '*'
     EQUALS,         ///< '='
     PLUSPLUS,        ///< '++'
+    PLUSEQUALS,      ///< '+='
     END_OF_INPUT,   ///< End of source
 };
 /** --------------------------------------------------------------------------------------------------------- Token
@@ -87,6 +88,10 @@ public:
         if (c == '+' && pos_ + 1 < src_.size() && src_[pos_ + 1] == '+') {
             pos_ += 2;
             return {TokenType::PLUSPLUS, src_.substr(pos_ - 2, 2), line};
+        }
+        if (c == '+' && pos_ + 1 < src_.size() && src_[pos_ + 1] == '=') {
+            pos_ += 2;
+            return {TokenType::PLUSEQUALS, src_.substr(pos_ - 2, 2), line};
         }
         auto single = [&](TokenType t) -> Token {
             pos_++;
@@ -169,6 +174,7 @@ private:
     std::unordered_map<std::string, size_t> labels_;     ///< Label name → bytecode offset
     std::unordered_map<std::string, IntrinsicDef> intrinsics_;  ///< Intrinsic name → definition
     std::vector<PtrPatch> patches_;                      ///< Pointer fixups for exec-time patching
+    std::vector<U32Patch> u32_patches_;                  ///< Scalar u32 fixups for exec-time patching
     uint8_t next_reg_ = 2;                               ///< Next available z-register (0-1 reserved)
     program prog_;                                       ///< Bytecodes being built
     void advance() { cur_ = tok_.next(); }
@@ -255,58 +261,139 @@ private:
      */
     void registerIntrinsics() {
         using A = ArgType;
-        // BLAS matrix multiply
+        // ── Tile ZA operations ──────────────────────────────────────────────
+        intrinsics_["zero_za"]       = {Op::zero_za, {}};
+        intrinsics_["acc_smopa"]     = {Op::acc_smopa,   {A::U32, A::PTR, A::PTR}};
+        intrinsics_["acc_umopa"]     = {Op::acc_umopa,   {A::U32, A::PTR, A::PTR}};
+        intrinsics_["acc_usmopa"]    = {Op::acc_usmopa,  {A::U32, A::PTR, A::PTR}};
+        intrinsics_["acc_sumopa"]    = {Op::acc_sumopa,   {A::U32, A::PTR, A::PTR}};
+        intrinsics_["store_tiles"]   = {Op::store_tiles, {A::PTR}};
+        intrinsics_["smopa_2x2"]     = {Op::smopa_2x2, {}};
+        intrinsics_["umopa_2x2"]     = {Op::umopa_2x2, {}};
+        intrinsics_["usmopa_2x2"]    = {Op::usmopa_2x2, {}};
+        intrinsics_["load_bias"]     = {Op::load_bias,   {A::PTR}};
+        intrinsics_["scale_store"]   = {Op::scale_store,  {A::F32, A::PTR}};
+        intrinsics_["scatter_tile"]  = {Op::scatter_tile_fp32, {A::U32, A::U32, A::U32, A::PTR, A::PTR}};
+        // ── Elementwise array ops ───────────────────────────────────────────
+        intrinsics_["elementwise_add"]        = {Op::elementwise_add_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["elementwise_scaled_add"] = {Op::elementwise_scaled_add_fp32, {A::U32, A::F32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["elementwise_mul"]        = {Op::elementwise_mul_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["elementwise_sub"]        = {Op::elementwise_sub_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["relu_backward"]          = {Op::relu_backward_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
+        // ── Transpose / matmul / dense ──────────────────────────────────────
+        intrinsics_["transpose"]     = {Op::transpose_fp32, {A::U32, A::U32, A::PTR, A::PTR}};
+        intrinsics_["transpose_i8"]  = {Op::transpose_i8,   {A::U32, A::U32, A::PTR, A::PTR}};
+        intrinsics_["softmax_argmax"] = {Op::softmax_argmax_fp32, {A::U32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["dense_fp32"]    = {Op::dense_fp32,   {A::U32, A::U32, A::U32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["dense_i8"]      = {Op::dense_i8,     {A::U32, A::U32, A::U32, A::F32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["dense_u8s8"]    = {Op::dense_u8s8,   {A::U32, A::U32, A::U32, A::F32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["dense_strided"] = {Op::dense_strided_fp32, {A::U32, A::U32, A::U32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["count_matches"] = {Op::count_matches, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["reduce_sum"]    = {Op::reduce_sum_fp32, {A::U32, A::PTR, A::PTR}};
+        intrinsics_["reduce_col_sum"] = {Op::reduce_col_sum_fp32, {A::U32, A::U32, A::U32, A::PTR, A::PTR}};
+        // ── Quantization ────────────────────────────────────────────────────
+        intrinsics_["quantize_fp32_i8"]           = {Op::quantize_fp32_i8, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["dequantize_i8_fp32"]         = {Op::dequantize_i8_fp32, {A::U32, A::F32, A::PTR, A::PTR}};
+        intrinsics_["pack_b_i8"]                  = {Op::pack_b_i8, {A::U32, A::U32, A::PTR, A::PTR}};
+        intrinsics_["quantize_fp32_i8_channelwise"] = {Op::quantize_fp32_i8_channelwise, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["quantize_pack_4bit"]         = {Op::quantize_pack_4bit_fp32, {A::U32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["quantize_accum_2bit"]        = {Op::quantize_accum_2bit, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["accum_8bit"]                 = {Op::accum_8bit, {A::U32, A::PTR, A::PTR, A::PTR}};
+        // ── Table lookup (fused kernel) ─────────────────────────────────────
+        intrinsics_["luti2"]         = {Op::luti2_op, {A::U32, A::U8, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["luti4"]         = {Op::luti4_op, {A::U32, A::U8, A::PTR, A::PTR, A::PTR}};
+        // ── Raw load/store (inline pointer, not via param table) ────────────
+        intrinsics_["load_raw"]      = {Op::load, {A::PTR}};
+        intrinsics_["store_raw"]     = {Op::store, {A::PTR}};
+        // ── Distance / similarity metrics ───────────────────────────────────
+        intrinsics_["l2_squared_fp32"]   = {Op::l2_squared_fp32,   {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["l2_squared_bf16"]   = {Op::l2_squared_bf16,   {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["l2_squared_f64"]    = {Op::l2_squared_f64,    {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["cosine_dist_fp32"]  = {Op::cosine_dist_fp32,  {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["cosine_dist_bf16"]  = {Op::cosine_dist_bf16,  {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["cosine_dist_f64"]   = {Op::cosine_dist_f64,   {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["normalize"]         = {Op::normalize_fp32,     {A::U32, A::PTR}};
+        // ── DCT ─────────────────────────────────────────────────────────────
+        intrinsics_["dct2_forward"]  = {Op::dct2_forward_fp32, {A::U32, A::PTR, A::PTR}};
+        intrinsics_["dct2_inverse"]  = {Op::dct2_inverse_fp32, {A::U32, A::PTR, A::PTR}};
+        // ── Bitmap / threshold / stats ──────────────────────────────────────
+        intrinsics_["threshold_bitmap"] = {Op::threshold_bitmap_fp32, {A::U32, A::F32, A::PTR, A::PTR}};
+        intrinsics_["welford_stats"]    = {Op::welford_stats_fp32, {A::U32, A::U32, A::PTR, A::PTR}};
+        intrinsics_["threshold_8bit"]   = {Op::threshold_8bit, {A::U32, A::U8, A::PTR, A::PTR}};
+        // ── SoA quantized accumulation ──────────────────────────────────────
+        intrinsics_["soa_sub_scale_bf16"] = {Op::soa_sub_scale_bf16, {A::U32, A::PTR, A::F32, A::F32, A::PTR}};
+        intrinsics_["soa_luti2_accum"]    = {Op::soa_luti2_accum, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["soa_luti4_accum"]    = {Op::soa_luti4_accum, {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["bitmap_score"]       = {Op::bitmap_score_pipeline, {A::U32, A::U32, A::U32, A::U32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR}};
+        // ── Register-level z-vector ops ─────────────────────────────────────
+        intrinsics_["mov"]           = {Op::mov_zreg, {A::U8, A::U8}};
+        intrinsics_["fmla"]          = {Op::fmla_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["and_z"]         = {Op::and_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["orr_z"]         = {Op::orr_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["eor_z"]         = {Op::eor_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["not_z"]         = {Op::not_zreg, {A::U8, A::U8}};
+        intrinsics_["lsl_z"]         = {Op::lsl_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["lsr_z"]         = {Op::lsr_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["asr_z"]         = {Op::asr_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["faddv"]         = {Op::faddv_zreg, {A::U8, A::U8}};
+        intrinsics_["frsqrt"]        = {Op::frsqrt_zreg, {A::U8, A::U8}};
+        intrinsics_["broadcast"]     = {Op::broadcast_scalar_zreg, {A::U8, A::F32}};
+        intrinsics_["fscale"]        = {Op::fscale_zreg, {A::U8, A::U8, A::F32}};
+        intrinsics_["fclamp"]        = {Op::fclamp_zreg, {A::U8, A::U8, A::U8, A::F32, A::F32}};
+        intrinsics_["fdot"]          = {Op::fdot_zreg, {A::U8}};
+        intrinsics_["fmla_wide"]     = {Op::fmla_wide_zreg, {A::U8}};
+        // ── Table register / tile register ops ──────────────────────────────
+        intrinsics_["load_zt0"]      = {Op::load_zt0, {A::PTR}};
+        intrinsics_["luti2_zreg"]    = {Op::luti2_zreg, {A::U8, A::U8}};
+        intrinsics_["luti4_zreg"]    = {Op::luti4_zreg, {A::U8, A::U8}};
+        intrinsics_["smopa_zreg"]    = {Op::smopa_zreg,  {A::U8, A::U8, A::U8}};
+        intrinsics_["umopa_zreg"]    = {Op::umopa_zreg,  {A::U8, A::U8, A::U8}};
+        intrinsics_["usmopa_zreg"]   = {Op::usmopa_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["fmopa_zreg"]    = {Op::fmopa_zreg,  {A::U8, A::U8, A::U8}};
+        // ── BLAS matrix multiply ────────────────────────────────────────────
         intrinsics_["sgemm"]   = {Op::cblas_sgemm,   {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["bfgemm"]  = {Op::cblas_bfgemm,   {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["igemm"]   = {Op::cblas_igemm,    {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["ugemm"]   = {Op::cblas_ugemm,    {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["usgemm"]  = {Op::cblas_usgemm,   {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::PTR, A::PTR, A::PTR}};
-        // Tile-range GEMM
         intrinsics_["gemm_tile"] = {Op::gemm_tile_fp32, {A::U8, A::U32, A::U32, A::U32, A::U32, A::U32, A::U32, A::F32, A::F32, A::U32, A::U32, A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
-        // Transformer kernels
+        // ── Transformer kernels ─────────────────────────────────────────────
         intrinsics_["softmax"]  = {Op::softmax_fp32,   {A::U32, A::PTR, A::PTR}};
         intrinsics_["rms_norm"] = {Op::rms_norm_fp32,  {A::U32, A::F32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["silu"]     = {Op::silu_fp32,      {A::U32, A::PTR, A::PTR}};
         intrinsics_["rope"]     = {Op::rope_fp32,      {A::U32, A::U32, A::F32, A::PTR, A::PTR}};
-        // Decomposition building blocks
+        intrinsics_["gelu"]     = {Op::gelu_fp32,      {A::U32, A::PTR, A::PTR}};
+        intrinsics_["layer_norm"] = {Op::layer_norm_fp32, {A::U32, A::F32, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["causal_mask"] = {Op::causal_mask_fp32, {A::U32, A::U32, A::PTR}};
+        // ── Decomposition building blocks ───────────────────────────────────
         intrinsics_["softmax_partial"] = {Op::softmax_partial_fp32, {A::U32, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["softmax_correct"] = {Op::softmax_correct_fp32, {A::U32, A::F32, A::F32, A::PTR, A::PTR}};
         intrinsics_["reduce_sum_sq"]   = {Op::reduce_sum_sq_fp32,   {A::U32, A::PTR, A::PTR}};
-        // Quantized GEMV
-        intrinsics_["q8_0_gemv"] = {Op::q8_0_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["q4_0_gemv"] = {Op::q4_0_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
-        // Fused array ops
-        intrinsics_["elementwise_add"] = {Op::elementwise_add_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["elementwise_mul"] = {Op::elementwise_mul_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["reduce_sum"]      = {Op::reduce_sum_fp32,      {A::U32, A::PTR, A::PTR}};
-        intrinsics_["reduce_col_sum"] = {Op::reduce_col_sum_fp32, {A::U32, A::U32, A::U32, A::PTR, A::PTR}};
-        // Backward passes
-        intrinsics_["silu_backward"]    = {Op::silu_backward_fp32,    {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["softmax_backward"] = {Op::softmax_backward_fp32, {A::U32, A::PTR, A::PTR, A::PTR}};
-        // Activations
-        intrinsics_["gelu"]       = {Op::gelu_fp32,       {A::U32, A::PTR, A::PTR}};
-        // Normalization
-        intrinsics_["layer_norm"] = {Op::layer_norm_fp32,  {A::U32, A::F32, A::PTR, A::PTR, A::PTR, A::PTR}};
-        // Attention
-        intrinsics_["causal_mask"] = {Op::causal_mask_fp32, {A::U32, A::U32, A::PTR}};
-        // Optimizer
-        intrinsics_["adam_step"] = {Op::adam_step_fp32, {A::U32, A::F32, A::F32, A::F32, A::F32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR}};
+        // ── Backward passes ─────────────────────────────────────────────────
+        intrinsics_["silu_backward"]       = {Op::silu_backward_fp32,       {A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["softmax_backward"]    = {Op::softmax_backward_fp32,    {A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["gelu_backward"]       = {Op::gelu_backward_fp32,       {A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["rms_norm_backward"]   = {Op::rms_norm_backward_fp32,   {A::U32, A::F32, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["layer_norm_backward"] = {Op::layer_norm_backward_fp32, {A::U32, A::F32, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["rope_backward"]       = {Op::rope_backward_fp32,       {A::U32, A::U32, A::F32, A::PTR, A::PTR}};
         intrinsics_["cross_entropy"]       = {Op::cross_entropy_fp32,       {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["elementwise_sub"]     = {Op::elementwise_sub_fp32,     {A::U32, A::PTR, A::PTR, A::PTR}};
-        // K-quant GEMV
+        // ── Optimizer ───────────────────────────────────────────────────────
+        intrinsics_["adam_step"] = {Op::adam_step_fp32, {A::U32, A::F32, A::F32, A::F32, A::F32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR}};
+        // ── Quantized GEMV ──────────────────────────────────────────────────
+        intrinsics_["q8_0_gemv"] = {Op::q8_0_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["q4_0_gemv"] = {Op::q4_0_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["q4_k_gemv"] = {Op::q4_k_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["q2_k_gemv"] = {Op::q2_k_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["q3_k_gemv"] = {Op::q3_k_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["q5_k_gemv"] = {Op::q5_k_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["q6_k_gemv"] = {Op::q6_k_gemv, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
+        // ── Attention / embedding ───────────────────────────────────────────
         intrinsics_["flash_attention"] = {Op::flash_attention_fp32, {A::U32, A::U32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["get_rows"]      = {Op::get_rows_fp32, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["get_rows_q8_0"] = {Op::get_rows_q8_0, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["get_rows_q4_0"] = {Op::get_rows_q4_0, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
+        // ── Strided advance ─────────────────────────────────────────────────
+        intrinsics_["advance_stride"] = {Op::advance_param_stride, {A::U8, A::U32}};
     }
     /** --------------------------------------------------------------------------------------------- Emit Intrinsic Arg
      * @brief Parses and emits one argument of an intrinsic function call according to its type.
@@ -320,9 +407,19 @@ private:
                 break;
             }
             case ArgType::U32: {
-                int val = parseNumber();
-                uint32_t v = static_cast<uint32_t>(val);
-                prog_.emit_raw(&v, 4);
+                if (cur_.type == TokenType::IDENT && cur_.text == "params") {
+                    // Runtime U32 from scalar param table — deferred to exec time
+                    advance();
+                    uint8_t idx = parseParamRef();
+                    size_t offset = prog_.mark();
+                    uint32_t placeholder = 0;
+                    prog_.emit_raw(&placeholder, 4);
+                    u32_patches_.push_back({offset, idx});
+                } else {
+                    int val = parseNumber();
+                    uint32_t v = static_cast<uint32_t>(val);
+                    prog_.emit_raw(&v, 4);
+                }
                 break;
             }
             case ArgType::F32: {
@@ -390,8 +487,14 @@ private:
         if (cur_.type == TokenType::IDENT && cur_.text == "params") {
             advance();
             uint8_t idx = parseParamRef();
-            expect(TokenType::PLUSPLUS, "Expected '++'");
-            prog_.emit(Op::advance_param, idx);
+            if (cur_.type == TokenType::PLUSEQUALS) {
+                advance();
+                int stride = parseNumber();
+                prog_.emit(Op::advance_param_stride, idx, uint32_t(stride));
+            } else {
+                expect(TokenType::PLUSPLUS, "Expected '++' or '+='");
+                prog_.emit(Op::advance_param, idx);
+            }
             return;
         }
         if (cur_.type != TokenType::IDENT)
@@ -510,6 +613,7 @@ public:
     }
     uint8_t numVars() const { return next_reg_ - 2; }
     std::vector<PtrPatch> takePatches() { return std::move(patches_); }
+    std::vector<U32Patch> takeU32Patches() { return std::move(u32_patches_); }
 };
 /** --------------------------------------------------------------------------------------------------------- script Implementation
  */
@@ -519,6 +623,7 @@ void script::compile() {
     Compiler c(source);
     compiled_ = c.compile();
     patches_ = c.takePatches();
+    u32_patches_ = c.takeU32Patches();
     compiled_valid_ = true;
 }
 void script::exec(std::initializer_list<const void*> params) {
@@ -535,6 +640,28 @@ void script::exec(std::initializer_list<const void*> params) {
     for (const auto& patch : patches_) {
         auto ptr_val = reinterpret_cast<uintptr_t>(param_vec[patch.param_idx]);
         p.patch_u64(preamble_size + patch.bytecode_offset, ptr_val);
+    }
+    p.exec();
+}
+void script::exec(std::initializer_list<const void*> ptrs,
+                  std::initializer_list<uint32_t> scalars) {
+    if (!compiled_valid_) compile();
+    program p;
+    std::vector<const void*> ptr_vec(ptrs);
+    std::vector<uint32_t> scalar_vec(scalars);
+    uint8_t idx = 0;
+    for (auto ptr : ptr_vec) {
+        p.emit(Op::set_param, idx, reinterpret_cast<uintptr_t>(ptr));
+        idx++;
+    }
+    size_t preamble_size = p.mark();
+    p.append(compiled_);
+    for (const auto& patch : patches_) {
+        auto ptr_val = reinterpret_cast<uintptr_t>(ptr_vec[patch.param_idx]);
+        p.patch_u64(preamble_size + patch.bytecode_offset, ptr_val);
+    }
+    for (const auto& patch : u32_patches_) {
+        p.patch_u32(preamble_size + patch.bytecode_offset, scalar_vec[patch.param_idx]);
     }
     p.exec();
 }

@@ -642,15 +642,559 @@ Preserves: z2-z31, ZA, ZT0
 
 ---
 
-## NOT YET IMPLEMENTED (Needed)
+## Register Shift Operations
 
-These composable primitives are identified as gaps:
+### `lsl_zreg` (0x43)
+`z{dst} = z{src} << amount` (logical shift left)
+```
+Encoding: [0x43][dst:u8][src:u8][amount:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
 
-- `lsl_zreg` / `lsr_zreg` / `asr_zreg` — bitwise shifts
-- `load_zt0` — load ZT0 table register without running a LUT operation
-- `luti2_zreg` / `luti4_zreg` — composable LUT (result in z-reg, not memory)
-- `smopa_zreg` / `umopa_zreg` / `usmopa_zreg` / `fmopa_zreg` — composable outer product accumulate
-- `faddv_zreg` — horizontal reduction (sum z-vector to scalar)
-- `fsqrt_zreg` / `fdiv_zreg` — square root and division
-- `f64` variants of arithmetic ops — double-precision fadd/fsub/fmul/fmla
-- Scalar broadcast — fill z-reg with a single value
+### `lsr_zreg` (0x44)
+`z{dst} = z{src} >> amount` (logical shift right)
+```
+Encoding: [0x44][dst:u8][src:u8][amount:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `asr_zreg` (0x45)
+`z{dst} = z{src} >> amount` (arithmetic shift right, sign-extending)
+```
+Encoding: [0x45][dst:u8][src:u8][amount:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+---
+
+## Table/Tile Register Operations
+
+### `load_zt0` (0x46)
+Load 64 bytes into ZT0 lookup table register.
+```
+Encoding: [0x46][ptr:u64]
+Clobbers: ZT0
+Preserves: z0-z31, ZA
+```
+
+### `luti2_zreg` (0x47)
+2-bit table lookup: `z{dst}.b = luti2(zt0, z{src}[0])`
+```
+Encoding: [0x47][dst:u8][src:u8]
+Clobbers: z{dst}
+Preserves: ZT0, ZA
+```
+
+### `luti4_zreg` (0x48)
+4-bit table lookup: `z{dst}.b = luti4(zt0, z{src}[0])`
+```
+Encoding: [0x48][dst:u8][src:u8]
+Clobbers: z{dst}
+Preserves: ZT0, ZA
+```
+
+### `smopa_zreg` (0x49)
+Signed int8 outer product accumulate: `za{tile}.s += z{src1}.b * z{src2}.b`
+```
+Encoding: [0x49][tile:u8][src1:u8][src2:u8]
+Writes: ZA (za{tile}.s accumulated)
+Preserves: z0-z31, ZT0
+```
+
+### `umopa_zreg` (0x4A)
+Unsigned int8 outer product accumulate: `za{tile}.s += z{src1}.b * z{src2}.b`
+```
+Encoding: [0x4A][tile:u8][src1:u8][src2:u8]
+Writes: ZA (za{tile}.s accumulated)
+Preserves: z0-z31, ZT0
+```
+
+### `usmopa_zreg` (0x4B)
+Unsigned x signed int8 outer product accumulate: `za{tile}.s += z{src1}.b * z{src2}.b`
+```
+Encoding: [0x4B][tile:u8][src1:u8][src2:u8]
+Writes: ZA (za{tile}.s accumulated)
+Preserves: z0-z31, ZT0
+```
+
+### `fmopa_zreg` (0x4C)
+Float32 outer product accumulate: `za{tile}.s += z{src1}.s * z{src2}.s`
+```
+Encoding: [0x4C][tile:u8][src1:u8][src2:u8]
+Writes: ZA (za{tile}.s accumulated)
+Preserves: z0-z31, ZT0
+```
+
+---
+
+## CBLAS GEMM
+
+### `cblas_sgemm` (0x4D)
+Full CBLAS-compatible fp32 GEMM: `C = alpha*op(A)*op(B) + beta*C`
+```
+Encoding: [0x4D][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+Note: Heavyweight kernel with large stack frame
+```
+
+---
+
+## Register Scalar Operations
+
+### `fclamp_zreg` (0x4E)
+Clamp z{src} lanes to [lo, hi] range.
+```
+Encoding: [0x4E][flags:u8][dst:u8][src:u8][lo:f32][hi:f32]
+Clobbers: z{dst}
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `faddv_zreg` (0x4F)
+Horizontal sum of z{src}, broadcast scalar result into z{dst}.
+```
+Encoding: [0x4F][dst:u8][src:u8]
+Clobbers: z{dst}
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `frsqrt_zreg` (0x50)
+Reciprocal square root per lane: `z{dst}.s = 1/sqrt(z{src}.s)`
+```
+Encoding: [0x50][dst:u8][src:u8]
+Clobbers: z{dst}
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `rms_norm_fp32` (0x51)
+RMS normalization: `out[i] = in[i] * weight[i] / rms(in)`
+```
+Encoding: [0x51][dim:u32][eps:f32][in:u64][weight:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `broadcast_scalar_zreg` (0x52)
+Fill all lanes of z{dst} with a single float32 scalar.
+```
+Encoding: [0x52][dst:u8][value:f32]
+Clobbers: z{dst}
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `fscale_zreg` (0x53)
+Scale z-register: `z{dst}.s = z{src}.s * scalar`
+```
+Encoding: [0x53][dst:u8][src:u8][scalar:f32]
+Clobbers: z{dst}
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+---
+
+## Transformer Kernels
+
+### `silu_fp32` (0x54)
+SiLU (Swish) activation: `out[i] = in[i] * sigmoid(in[i])`
+```
+Encoding: [0x54][count:u32][in:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `rope_fp32` (0x55)
+Rotary position embedding (RoPE).
+```
+Encoding: [0x55][dim:u32][pos:u32][theta:f32][in:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `softmax_fp32` (0x56)
+Standalone softmax: `out[i] = exp(in[i] - max) / sum(exp(in - max))`
+```
+Encoding: [0x56][dim:u32][in:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+---
+
+## Quantized GEMV
+
+### `q8_0_gemv` (0x57)
+Q8_0 quantized matrix-vector multiply (block quant, 32-element groups).
+```
+Encoding: [0x57][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `q4_0_gemv` (0x58)
+Q4_0 quantized matrix-vector multiply (4-bit block quant, 32-element groups).
+```
+Encoding: [0x58][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+---
+
+## Wide Register Operations
+
+Operations that span multiple z-registers for wider accumulation or data movement.
+
+### `fdot_zreg` (0x59)
+Dot product across wide register group.
+```
+Encoding: [0x59][width:u8]
+Clobbers: z0-z{width-1}
+Preserves: ZA, ZT0
+```
+
+### `fmla_wide_zreg` (0x5A)
+Wide fused multiply-accumulate across register group.
+```
+Encoding: [0x5A][width:u8]
+Clobbers: z0-z{width-1}
+Preserves: ZA, ZT0
+```
+
+### `fadd_wide_zreg` (0x5B)
+Wide vector add: `z{dst}..z{dst+width-1} = z{src1}.. + z{src2}..`
+```
+Encoding: [0x5B][width:u8][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}..z{dst+width-1}
+Preserves: ZA, ZT0
+```
+
+### `fsub_wide_zreg` (0x5C)
+Wide vector subtract.
+```
+Encoding: [0x5C][width:u8][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}..z{dst+width-1}
+Preserves: ZA, ZT0
+```
+
+### `fmul_wide_zreg` (0x5D)
+Wide vector multiply.
+```
+Encoding: [0x5D][width:u8][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}..z{dst+width-1}
+Preserves: ZA, ZT0
+```
+
+### `load_wide_param` (0x5E)
+Load wide parameter: load `width` consecutive z-registers from param slot.
+```
+Encoding: [0x5E][width:u8][param_idx:u8][reg_base:u8]
+Clobbers: z{reg_base}..z{reg_base+width-1}
+Preserves: ZA, ZT0
+```
+
+### `store_wide_param` (0x5F)
+Store wide parameter: store `width` consecutive z-registers to param slot.
+```
+Encoding: [0x5F][width:u8][param_idx:u8][reg_base:u8]
+Reads: z{reg_base}..z{reg_base+width-1}
+Preserves: z0-z31, ZA, ZT0
+```
+
+---
+
+## BLAS Variants
+
+### `cblas_bfgemm` (0x60)
+BF16 GEMM via BFMOPA tiles: `C = alpha*op(A)*op(B) + beta*C`
+```
+Encoding: [0x60][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `cblas_igemm` (0x61)
+INT8 signed GEMM via SMOPA tiles.
+```
+Encoding: [0x61][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `cblas_ugemm` (0x62)
+UINT8 unsigned GEMM via UMOPA tiles.
+```
+Encoding: [0x62][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `cblas_usgemm` (0x63)
+UINT8 x INT8 mixed GEMM via USMOPA tiles.
+```
+Encoding: [0x63][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `gemm_tile_fp32` (0x64)
+Tile-range FMOPA GEMM with explicit tile start/end indices.
+```
+Encoding: [0x64][trans:u8][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [alpha:f32][beta:f32][ti_start:u32][tj_start:u32]
+         [ti_end:u32][tj_end:u32][A:u64][B:u64][C:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+---
+
+## Decomposition and Backward Kernels
+
+### `softmax_partial_fp32` (0x65)
+Partial softmax for streaming/tiled computation.
+```
+Encoding: [0x65][dim:u32][in:u64][out:u64][max_out:u64][sum_out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `softmax_correct_fp32` (0x66)
+Softmax correction pass for partial results.
+```
+Encoding: [0x66][dim:u32][local_max:f32][global_max:f32][out:u64][sum_ptr:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `reduce_sum_sq_fp32` (0x67)
+Sum of squares reduction: `out = sum(in[i]^2)`
+```
+Encoding: [0x67][dim:u32][in:u64][out:u64]
+Clobbers: z0-z3
+Preserves: z4-z31, ZA, ZT0
+```
+
+### `reduce_col_sum_fp32` (0x68)
+Column-wise sum of M x N matrix.
+```
+Encoding: [0x68][M:u32][N:u32][ldc:u32][src:u64][dst:u64]
+Clobbers: z0-z3
+Preserves: z4-z31, ZA, ZT0
+```
+
+### `silu_backward_fp32` (0x69)
+SiLU backward pass: `dx[i] = dy[i] * (sigma(x[i]) + x[i]*sigma(x[i])*(1-sigma(x[i])))`
+```
+Encoding: [0x69][dim:u32][x:u64][dy:u64][dx:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `softmax_backward_fp32` (0x6A)
+Softmax backward pass.
+```
+Encoding: [0x6A][dim:u32][s:u64][dy:u64][dx:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `gelu_fp32` (0x6B)
+GeLU activation: `out[i] = 0.5 * in[i] * (1 + erf(in[i] / sqrt(2)))`
+```
+Encoding: [0x6B][dim:u32][in:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `layer_norm_fp32` (0x6C)
+Layer normalization: `out = gamma * (in - mean) / sqrt(var + eps) + beta`
+```
+Encoding: [0x6C][dim:u32][eps:f32][in:u64][gamma:u64][beta:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `causal_mask_fp32` (0x6D)
+Apply causal (lower-triangular) mask to attention scores.
+```
+Encoding: [0x6D][rows:u32][cols:u32][scores:u64]
+Clobbers: z0-z3
+Preserves: z4-z31, ZA, ZT0
+```
+
+### `adam_step_fp32` (0x6E)
+Fused Adam optimizer step with bias correction.
+```
+Encoding: [0x6E][dim:u32][lr:f32][beta1:f32][beta2:f32][eps:f32][t:u32]
+         [params:u64][grads:u64][m:u64][v:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `gelu_backward_fp32` (0x6F)
+GeLU backward pass.
+```
+Encoding: [0x6F][dim:u32][x:u64][dy:u64][dx:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `rms_norm_backward_fp32` (0x70)
+RMS normalization backward pass.
+```
+Encoding: [0x70][dim:u32][eps:f32][x:u64][w:u64][dy:u64][dx:u64][dw:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `layer_norm_backward_fp32` (0x71)
+Layer normalization backward pass.
+```
+Encoding: [0x71][dim:u32][eps:f32][x:u64][gamma:u64][dy:u64][dx:u64][dgamma:u64][dbeta:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `rope_backward_fp32` (0x72)
+RoPE backward pass.
+```
+Encoding: [0x72][dim:u32][pos:u32][theta:f32][dy:u64][dx:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `cross_entropy_fp32` (0x73)
+Cross-entropy loss and gradient in one pass.
+```
+Encoding: [0x73][batch:u32][dim:u32][logits:u64][labels:u64][loss_grad:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `elementwise_sub_fp32` (0x74)
+Elementwise subtract: `out[i] = a[i] - b[i]`
+```
+Encoding: [0x74][count:u32][a:u64][b:u64][out:u64]
+Clobbers: z0-z1
+Preserves: z2-z31, ZA, ZT0
+```
+
+---
+
+## K-quant GEMV
+
+### `q4_k_gemv` (0x75)
+Q4_K super-block quantized GEMV (k-quant format with min/scale per block).
+```
+Encoding: [0x75][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `q2_k_gemv` (0x76)
+Q2_K super-block quantized GEMV.
+```
+Encoding: [0x76][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `q3_k_gemv` (0x77)
+Q3_K super-block quantized GEMV.
+```
+Encoding: [0x77][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `q5_k_gemv` (0x78)
+Q5_K super-block quantized GEMV.
+```
+Encoding: [0x78][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `q6_k_gemv` (0x79)
+Q6_K super-block quantized GEMV.
+```
+Encoding: [0x79][M:u32][K:u32][in:u64][W:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+---
+
+## Attention and Embedding
+
+### `flash_attention_fp32` (0x7A)
+Fused flash attention (single-head): `out = softmax(Q*K^T / sqrt(d)) * V`
+```
+Encoding: [0x7A][head_dim:u32][seq_len:u32][causal:u8][Q:u64][K:u64][V:u64][out:u64]
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `get_rows_fp32` (0x7B)
+Embedding table lookup (fp32 table).
+```
+Encoding: [0x7B][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+Clobbers: z0-z3
+Preserves: z4-z31, ZA, ZT0
+```
+
+### `get_rows_q8_0` (0x7C)
+Embedding table lookup with Q8_0 dequantization.
+```
+Encoding: [0x7C][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+### `get_rows_q4_0` (0x7D)
+Embedding table lookup with Q4_0 dequantization.
+```
+Encoding: [0x7D][n_rows:u32][dim:u32][table:u64][indices:u64][out:u64]
+Clobbers: z0-z7
+Preserves: z8-z31, ZA, ZT0
+```
+
+---
+
+## Strided Operations
+
+### `dense_strided_fp32` (0x7E)
+Fused matmul+bias+ReLU with explicit row/column strides (non-contiguous layouts).
+```
+Encoding: [0x7E][M:u32][N:u32][K:u32][lda:u32][ldb:u32][ldc:u32]
+         [scale:f32][flags:u8][A:u64][B:u64][bias:u64][C:u64]
+flags: bit 0 = apply ReLU
+Clobbers: z0-z21, ZA
+Preserves: z22-z31, ZT0
+```
+
+### `advance_param_stride` (0x7F)
+Advance `param[idx]` pointer by an arbitrary stride in bytes.
+```
+Encoding: [0x7F][idx:u8][stride:u32]
+Clobbers: nothing (modifies param table entry)
+Preserves: z0-z31, ZA, ZT0
+```
+
+---
+
+## Future Gaps
+
+All opcodes 0x01-0x7F are implemented and accessible via the DSL compiler. The remaining gaps that could be added in future revisions:
+
+- `fsqrt_zreg` -- per-lane square root (currently only `frsqrt_zreg` reciprocal sqrt is available)
+- `fdiv_zreg` -- per-lane division (workaround: `frsqrt` + `fmul` for reciprocal patterns)
+- `f64` variants of register arithmetic -- double-precision `fadd_zreg`/`fsub_zreg`/`fmul_zreg`/`fmla_zreg`

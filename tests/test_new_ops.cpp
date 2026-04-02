@@ -72,14 +72,10 @@ static void test_gemm_tile_fp32() {
     // Full GEMM via tile: compute all tiles
     std::memset(C, 0, M * N * 4);
     ref_sgemm(A, B, ref, M, N, K, 1.0f, 0.0f);
-    ane::program p;
-    p.emit(ane::Op::gemm_tile_fp32,
-        uint8_t(0), uint32_t(M), uint32_t(N), uint32_t(K),
-        uint32_t(K), uint32_t(N), uint32_t(N), 1.0f, 0.0f,
-        uint32_t(0), uint32_t(0), uint32_t(M), uint32_t(N),
-        reinterpret_cast<uintptr_t>(A), reinterpret_cast<uintptr_t>(B),
-        reinterpret_cast<uintptr_t>(C));
-    p.exec();
+    ane::script s1(R"(
+        gemm_tile(0, 64, 64, 16, 16, 64, 64, 1.0, 0.0, 0, 0, 64, 64, params[0], params[1], params[2]);
+    )");
+    s1.exec({A, B, C});
     check("gemm_tile full 64x64", C, ref, M * N, 1e-3f);
     // Partial tile: top-left 32x32 only
     std::memset(C, 0, M * N * 4);
@@ -93,14 +89,10 @@ static void test_gemm_tile_fp32() {
     // Write to a separate 32x32 output
     auto* C2 = static_cast<float*>(alloc(M * N * 4));
     std::memset(C2, 0, M * N * 4);
-    ane::program p2;
-    p2.emit(ane::Op::gemm_tile_fp32,
-        uint8_t(0), uint32_t(M), uint32_t(N), uint32_t(K),
-        uint32_t(K), uint32_t(N), uint32_t(N), 1.0f, 0.0f,
-        uint32_t(0), uint32_t(0), uint32_t(32), uint32_t(32),
-        reinterpret_cast<uintptr_t>(A), reinterpret_cast<uintptr_t>(B),
-        reinterpret_cast<uintptr_t>(C2));
-    p2.exec();
+    ane::script s2(R"(
+        gemm_tile(0, 64, 64, 16, 16, 64, 64, 1.0, 0.0, 0, 0, 32, 32, params[0], params[1], params[2]);
+    )");
+    s2.exec({A, B, C2});
     // Check only the top-left 32x32
     bool pass = true;
     float max_err = 0;

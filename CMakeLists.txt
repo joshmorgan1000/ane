@@ -152,7 +152,7 @@ add_library(ane STATIC
     src/parser.cpp
 )
 target_include_directories(ane PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 set_source_files_properties(

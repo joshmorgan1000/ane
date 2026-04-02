@@ -308,6 +308,7 @@ probe_one "addhnb z0.b, z1.h, z2.h (narrow add hi lo)"
 probe_one "addhnt z0.b, z1.h, z2.h (narrow add hi hi)"
 probe_one "addp z0.s, p0/m, z0.s, z1.s (ADDP)"
 probe_one "addpl x0, x0, #1 (Add multiple of pred length)"
+probe_one "addqv v0.4s, p0, z1.s (add reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "addspl x0, x0, #1 (Add multiple of streaming PL)" sm
 probe_one "addsvl x0, x0, #1 (Add multiple of SVL)" sm
 probe_one "addva za0.s, p0/m, p0/m, z0.s (vert add)"
@@ -318,6 +319,7 @@ probe_one "aese z0.b, z0.b, z1.b (AES encrypt)" sme 132
 probe_one "aesimc z0.b, z0.b (AES inv mix)" sme 132
 probe_one "aesmc z0.b, z0.b (AES mix col)" sme 132
 probe_one "and z0.d, z1.d, z2.d (AND)"
+probe_one "andqv v0.16b, p0, z1.b (AND reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "ands p0.b, p0/z, p0.b, p0.b (Pred AND, setting flags)"
 probe_one "andv b0, p0, z1.b (Bitwise AND reduction)"
 probe_one "asr z0.b, p0/m, z0.b, z1.b (arith right)"
@@ -393,13 +395,20 @@ probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmlsl idx)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmlsl idx)"
+probe_one "bfmlslb z0.s, z1.h, z2.h (BF16 mul-sub long bot)" "sme" "$EXPECT_M5"
+probe_one "bfmlslb z0.s, z1.h, z2.h[0] (BF16 mul-sub long bot idx)" "sme" "$EXPECT_M5"
+probe_one "bfmlslt z0.s, z1.h, z2.h (BF16 mul-sub long top)" "sme" "$EXPECT_M5"
+probe_one "bfmlslt z0.s, z1.h, z2.h[0] (BF16 mul-sub long top idx)" "sme" "$EXPECT_M5"
 probe_one "bfmmla z0.s, z1.h, z2.h (BF16 matmul)" sme 132
+probe_one "bfmop4a za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile acc)" sme 132
+probe_one "bfmop4s za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile sub)" sme 132
 probe_one "bfmopa za0.s, p0/m, p0/m, z0.h, z1.h (BF16 outer)"
 probe_one "bfmopa za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mopa)" "sme" "$EXPECT_M5"
 probe_one "bfmops za0.s, p0/m, p0/m, z0.h, z1.h (BF16 mops)"
 probe_one "bfmops za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mops)" "sme" "$EXPECT_M5"
 probe_one "bfsub za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfsub from ZA)" "sme" "$EXPECT_M5"
 probe_one "bfsub za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfsub from ZA)" "sme" "$EXPECT_M5"
+probe_one "bftmopa za0.s, {z0.h-z1.h}, z2.h, z3[0] (TMOP BF16 sparse)" sme 132
 probe_one "bfvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (BF16 vertical dot)"
 probe_one "bgrp z0.s, z1.s, z2.s (Bit group, partition bits)" sme 132
 probe_one "bic z0.d, z1.d, z2.d (AND NOT)"
@@ -432,6 +441,8 @@ probe_one "cntb x0 (count bytes)"
 probe_one "cntd x0 (count dblwd)"
 probe_one "cnth x0 (count halfs)"
 probe_one "cntp x0, p0, p0.s (CNTP)"
+probe_one "cntp x0, pn8.s, vlx2 (count PN elems x2)" "sme" "$EXPECT_M5"
+probe_one "cntp x0, pn8.s, vlx4 (count PN elems x4)" "sme" "$EXPECT_M5"
 probe_one "cntw x0 (count words)"
 probe_one "compact z0.s, p0, z1.s (compact)" sme 132
 probe_one "cpy z0.s, p0/m, #0 (copy imm)"
@@ -447,14 +458,17 @@ probe_one "decw x0 (Decrement by word count)"
 probe_one "decw z0.s (Dec word count, vector)"
 probe_one "dup z0.s, #0 (broadcast 0)"
 probe_one "dup z0.s, w0 (broadcast reg)"
+probe_one "dupq z0.s, z1.s[0] (dup per 128b seg)" "sme" "$EXPECT_M5"
 probe_one "eor z0.d, z1.d, z2.d (XOR)"
 probe_one "eor z0.d, z1.d, z2.d (NO SMSTART control)" nosve 132
 probe_one "eor3 z0.d, z0.d, z1.d, z2.d (3-way XOR)"
 probe_one "eorbt z0.s, z1.s, z2.s (XOR bottom with top)"
+probe_one "eorqv v0.16b, p0, z1.b (XOR reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "eors p0.b, p0/z, p0.b, p0.b (Pred XOR, setting flags)"
 probe_one "eortb z0.s, z1.s, z2.s (XOR top with bottom)"
 probe_one "eorv b0, p0, z1.b (Bitwise XOR reduction)"
 probe_one "ext z0.b, z0.b, z1.b, #0 (extract)"
+probe_one "extq z0.b, z0.b, z1.b, #0 (extract per 128b seg)" "sme" "$EXPECT_M5"
 probe_one "f1cvt {z0.h-z1.h}, z2.b (FP8->FP16 f1cvt)" sme 132
 probe_one "f1cvtl {z0.h-z1.h}, z2.b (FP8->FP16 deintrl)" sme 132
 probe_one "f2cvt {z0.h-z1.h}, z2.b (FP8->FP16 f2cvt)" sme 132
@@ -470,6 +484,7 @@ probe_one "fadd za.s[w8,0,VGx2], {z0.s-z1.s} (2v fadd to ZA)"
 probe_one "fadd za.s[w8,0,VGx4], {z0.s-z3.s} (4v fadd to ZA)"
 probe_one "fadda s0, p0, s0, z1.s (ordered sum)" sme 132
 probe_one "faddp z0.s, p0/m, z0.s, z1.s (pairwise add)"
+probe_one "faddqv v0.4s, p0, z1.s (fadd reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "faddv s0, p0, z1.s (FP32 sum)"
 probe_one "faddv h0, p0, z0.h (FP16 add reduction)"
 probe_one "famax z0.s, p0/m, z0.s, z1.s (famax predicated)" sme 132
@@ -535,8 +550,10 @@ probe_one "fmaxnm {z0.s-z3.s}, {z0.s-z3.s}, z4.s (4v fmaxnm single)"
 probe_one "fmaxnm {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v fmaxnm mv)"
 probe_one "fmaxnm {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v fmaxnm mv)"
 probe_one "fmaxnmp z0.s, p0/m, z0.s, z1.s (FP max number pairwise)"
+probe_one "fmaxnmqv v0.4s, p0, z1.s (fmaxnm reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "fmaxnmv s0, p0, z1.s (FP max number reduction)"
 probe_one "fmaxp z0.s, p0/m, z0.s, z1.s (FP max pairwise)"
+probe_one "fmaxqv v0.4s, p0, z1.s (fmax reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "fmaxv s0, p0, z1.s (FP32 max)"
 probe_one "fmin z0.s, p0/m, z0.s, z1.s (FP32 min)"
 probe_one "fmin z0.s, p0/m, z0.s, #0.0 (FMIN imm)"
@@ -550,8 +567,10 @@ probe_one "fminnm {z0.s-z3.s}, {z0.s-z3.s}, z4.s (4v fminnm single)"
 probe_one "fminnm {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v fminnm mv)"
 probe_one "fminnm {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v fminnm mv)"
 probe_one "fminnmp z0.s, p0/m, z0.s, z1.s (FP min number pairwise)"
+probe_one "fminnmqv v0.4s, p0, z1.s (fminnm reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "fminnmv s0, p0, z1.s (FP min number reduction)"
 probe_one "fminp z0.s, p0/m, z0.s, z1.s (FP min pairwise)"
+probe_one "fminqv v0.4s, p0, z1.s (fmin reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "fminv s0, p0, z1.s (FP32 min)"
 probe_one "fmla z0.s, p0/m, z1.s, z2.s (FP32 fma)"
 probe_one "fmla z0.s, z1.s, z2.s[0] (FMLA idx)"
@@ -605,6 +624,9 @@ probe_one "fmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v fmlsl idx)"
 probe_one "fmlslb z0.s, z1.h, z2.h (FP16 widen mul-sub low)"
 probe_one "fmlslt z0.s, z1.h, z2.h (FP16 widen mul-sub high)"
 probe_one "fmmla z0.s, z1.s, z2.s (FP32 matmul)" sme 132
+probe_one "fmop4a za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile acc)" sme 132
+probe_one "fmop4a za0.s, z0.b, z4.b (MOP4 FP8 qtr-tile acc)" sme 132
+probe_one "fmop4s za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile sub)" sme 132
 probe_one "fmopa za0.s, p0/m, p0/m, z0.s, z1.s (FP32 outer)"
 probe_one "fmopa za0.s, p0/m, p0/m, z0.h, z1.h (FP16->FP32)"
 probe_one "fmopa za0.d, p0/m, p0/m, z0.d, z1.d (FP64 mopa)"
@@ -655,6 +677,7 @@ probe_one "fsub za.s[w8,0,VGx4], {z0.s-z3.s} (4v fsub from ZA)"
 probe_one "fsubr z0.s, p0/m, z0.s, z1.s (FP subtract reversed)"
 probe_one "fsubr z0.s, p0/m, z0.s, #0.5 (FP subtract reversed, imm)"
 probe_one "ftmad z0.s, z0.s, z1.s, #0 (trig coeff)" sme 132
+probe_one "ftmopa za0.s, {z0.s-z1.s}, z2.s, z3[0] (TMOP FP32 sparse)" sme 132
 probe_one "ftsmul z0.s, z1.s, z2.s (FP trig select coefficient)" sme 132
 probe_one "ftssel z0.s, z1.s, z2.s (FP trig start multiply)" sme 132
 probe_one "fvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (FP16 vertical dot)"
@@ -687,6 +710,7 @@ probe_one "ld1d {z0.d,z4.d,z8.d,z12.d}, pn8/z, [x0] (ld1d strided 4)" sm
 probe_one "ld1h {z0.h}, p0/z, [x0] (INT16 load)"
 probe_one "ld1h {z0.h,z8.h}, pn8/z, [x0] (ld1h strided 2)" sm
 probe_one "ld1h {z0.h,z4.h,z8.h,z12.h}, pn8/z, [x0] (ld1h strided 4)" sm
+probe_one "ld1q {z0.q}, p0/z, [z1.d, x0] (gather ld 128b)" "sme" "$EXPECT_M5"
 probe_one "ld1rb z0.s, p0/z, [x0] (Load+broadcast byte)"
 probe_one "ld1rd z0.d, p0/z, [x0] (Load+broadcast doubleword)"
 probe_one "ld1rh z0.s, p0/z, [x0] (Load+broadcast halfword)"
@@ -706,14 +730,17 @@ probe_one "ld1w {z0.s,z4.s,z8.s,z12.s}, pn8/z, [x0] (ld1w strided 4)" sm
 probe_one "ld2b {z0.b, z1.b}, p0/z, [x0] (Load 2-struct bytes)"
 probe_one "ld2d {z0.d, z1.d}, p0/z, [x0] (Load 2-struct doublewords)"
 probe_one "ld2h {z0.h, z1.h}, p0/z, [x0] (Load 2-struct halfwords)"
+probe_one "ld2q {z0.q-z1.q}, p0/z, [x0] (ld2 128b elem)" "sme" "$EXPECT_M5"
 probe_one "ld2w {z0.s, z1.s}, p0/z, [x0] (Load 2-struct words)"
 probe_one "ld3b {z0.b, z1.b, z2.b}, p0/z, [x0] (Load 3-struct bytes)"
 probe_one "ld3d {z0.d, z1.d, z2.d}, p0/z, [x0] (Load 3-struct doublewords)"
 probe_one "ld3h {z0.h, z1.h, z2.h}, p0/z, [x0] (Load 3-struct halfwords)"
+probe_one "ld3q {z0.q-z2.q}, p0/z, [x0] (ld3 128b elem)" "sme" "$EXPECT_M5"
 probe_one "ld3w {z0.s, z1.s, z2.s}, p0/z, [x0] (Load 3-struct words)"
 probe_one "ld4b {z0.b, z1.b, z2.b, z3.b}, p0/z, [x0] (Load 4-struct bytes)"
 probe_one "ld4d {z0.d, z1.d, z2.d, z3.d}, p0/z, [x0] (Load 4-struct doublewords)"
 probe_one "ld4h {z0.h, z1.h, z2.h, z3.h}, p0/z, [x0] (Load 4-struct halfwords)"
+probe_one "ld4q {z0.q-z3.q}, p0/z, [x0] (ld4 128b elem)" "sme" "$EXPECT_M5"
 probe_one "ld4w {z0.s, z1.s, z2.s, z3.s}, p0/z, [x0] (Load 4-struct words)"
 probe_one "ldnt1b {z0.b}, p0/z, [x0] (Non-temporal load bytes)"
 probe_one "ldnt1b {z0.b,z8.b}, pn8/z, [x0] (ldnt1b strided 2)" sm
@@ -724,6 +751,7 @@ probe_one "ldnt1h {z0.h}, p0/z, [x0] (Non-temporal load halfwords)"
 probe_one "ldnt1h {z0.h,z8.h}, pn8/z, [x0] (ldnt1h strided 2)" sm
 probe_one "ldnt1w {z0.s}, p0/z, [x0] (Non-temporal load words)"
 probe_one "ldnt1w {z0.s,z8.s}, pn8/z, [x0] (ldnt1w strided 2)" sm
+probe_one "ldr pn8, [x0] (load pred-as-counter)" "sme" "$EXPECT_M5"
 probe_one "ldr za[w12,0], [x0] (load ZA array vec)"
 probe_one "ldr zt0, [x0] (load ZT0)" sme
 probe_one "lsl z0.b, p0/m, z0.b, z1.b (shift left)"
@@ -749,6 +777,8 @@ probe_one "luti4 {z0.h-z1.h}, zt0, z2[0] (2v luti4 16b)" sme
 probe_one "luti4 {z0.s-z1.s}, zt0, z2[0] (2v luti4 32b)" sme
 probe_one "luti4 {z0.h-z3.h}, zt0, z2[0] (4v luti4 16b)" sme
 probe_one "luti4 {z0.s-z3.s}, zt0, z2[0] (4v luti4 32b)" sme
+probe_one "luti4 {z0.b-z1.b}, zt0, z2[0], #0 (LUTv2 luti4 8b seg)" sme 132
+probe_one "luti4 {z0.h-z1.h}, zt0, z2[0], #0 (LUTv2 luti4 16b seg)" sme 132
 probe_one "mad z0.s, p0/m, z1.s, z2.s (MAD)"
 probe_one "match p0.b, p0/z, z0.b, z1.b (set match)" sme 132
 probe_one "mla z0.s, p0/m, z1.s, z2.s (MLA pred)"
@@ -820,20 +850,27 @@ probe_one "nmatch p0.b, p0/z, z0.b, z1.b (no match)" sme 132
 probe_one "nor p0.b, p0/z, p0.b, p0.b (Pred bitwise NOR)"
 probe_one "not z0.b, p0/m, z1.b (NOT)"
 probe_one "orn p0.b, p0/z, p0.b, p0.b (Pred bitwise OR-NOT)"
+probe_one "orqv v0.16b, p0, z1.b (OR reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "orr z0.d, z1.d, z2.d (OR)"
 probe_one "orrs p0.b, p0/z, p0.b, p0.b (Pred OR, setting flags)"
 probe_one "orv b0, p0, z1.b (Bitwise OR reduction)"
+probe_one "pext p0.s, pn8[0] (extract pred from counter)" "sme" "$EXPECT_M5"
+probe_one "pext {p0.s, p1.s}, pn8[0] (extract pred pair from counter)" "sme" "$EXPECT_M5"
 probe_one "pfalse p0.b (Set predicate to all-false)"
 probe_one "pfirst p0.b, p0, p0.b (Set first active to true)"
+probe_one "pmov p0.s, z0 (pred from vector)" "sme" "$EXPECT_M5"
+probe_one "pmov z0, p0.s (vector from pred)" "sme" "$EXPECT_M5"
 probe_one "pmul z0.b, z1.b, z2.b (poly mul)"
 probe_one "pmullb z0.h, z1.b, z2.b (Polynomial mul long, bot)"
 probe_one "pmullt z0.h, z1.b, z2.b (Polynomial mul long, top)"
 probe_one "pnext p0.s, p0, p0.s (Find next active element)"
+probe_one "psel p0, p1, p2.s[w12, 0] (predicate select)" "sme" "$EXPECT_M5"
 probe_one "ptest p0, p0.b (Test predicate, set flags)"
 probe_one "ptrue p0.b (all-true .b)"
 probe_one "ptrue p0.h (all-true .h)"
 probe_one "ptrue p0.s (all-true .s)"
 probe_one "ptrue p0.d (all-true .d)"
+probe_one "ptrue pn8.s (pred-as-counter all-true)" "sme" "$EXPECT_M5"
 probe_one "ptrues p0.s (All-true predicate, set flags)"
 probe_one "punpkhi p0.h, p0.b (Pred unpack, high half->wide)"
 probe_one "punpklo p0.h, p0.b (Pred unpack, low half->wide)"
@@ -905,11 +942,13 @@ probe_one "smax z0.b, p0/m, z0.b, z1.b (signed max)"
 probe_one "smax {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v smax mv)"
 probe_one "smax {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v smax mv)"
 probe_one "smaxp z0.s, p0/m, z0.s, z1.s (SMAXP)"
+probe_one "smaxqv v0.4s, p0, z1.s (smax reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "smaxv b0, p0, z1.b (INT8 max)"
 probe_one "smin z0.b, p0/m, z0.b, z1.b (signed min)"
 probe_one "smin {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v smin mv)"
 probe_one "smin {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v smin mv)"
 probe_one "sminp z0.s, p0/m, z0.s, z1.s (SMINP)"
+probe_one "sminqv v0.4s, p0, z1.s (smin reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "sminv b0, p0, z1.b (INT8 min)"
 probe_one "smlal za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h (2vx1 smlal)"
 probe_one "smlal za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h (4vx1 smlal)"
@@ -940,6 +979,8 @@ probe_one "smlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b[0] (4v smlsll idx)"
 probe_one "smlsll za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v smlsll mv)"
 probe_one "smlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v smlsll mv)"
 probe_one "smmla z0.s, z1.b, z2.b (Signed 8b matrix mul accum)" sme 132
+probe_one "smop4a za0.s, z0.b, z4.b (MOP4 S8 qtr-tile acc)" sme 132
+probe_one "smop4s za0.s, z0.b, z4.b (MOP4 S8 qtr-tile sub)" sme 132
 probe_one "smopa za0.s, p0/m, p0/m, z0.b, z1.b (INT8 outer s)"
 probe_one "smopa za0.s, p0/m, p1/m, z0.b, z1.b (I8->I32)"
 probe_one "smopa za1.s, p0/m, p1/m, z0.b, z1.b (I8->I32 tile 1?)"
@@ -1041,6 +1082,7 @@ probe_one "st1d {z0.d}, p0, [x0] (Store 64-bit elements)"
 probe_one "st1d {z0.d,z8.d}, pn8, [x0] (st1d strided 2)" sm
 probe_one "st1h {z0.h}, p0, [x0] (INT16 store)"
 probe_one "st1h {z0.h,z8.h}, pn8, [x0] (st1h strided 2)" sm
+probe_one "st1q {z0.q}, p0, [z1.d, x0] (scatter st 128b)" "sme" "$EXPECT_M5"
 probe_one "st1w {z0.s}, p0, [x0] (FP32 store)"
 probe_one "st1w {z0.s-z1.s}, pn8, [x0] (2-vec word store)" sm
 probe_one "st1w {z0.s-z3.s}, pn8, [x0] (4-vec word store)" sm
@@ -1048,15 +1090,19 @@ probe_one "st1w {z0.s,z8.s}, pn8, [x0] (st1w strided 2)" sm
 probe_one "st2b {z0.b, z1.b}, p0, [x0] (Store 2-struct bytes)"
 probe_one "st2d {z0.d, z1.d}, p0, [x0] (Store 2-struct doublewords)"
 probe_one "st2h {z0.h, z1.h}, p0, [x0] (Store 2-struct halfwords)"
+probe_one "st2q {z0.q-z1.q}, p0, [x0] (st2 128b elem)" "sme" "$EXPECT_M5"
 probe_one "st2w {z0.s, z1.s}, p0, [x0] (Store 2-struct words)"
 probe_one "st3b {z0.b, z1.b, z2.b}, p0, [x0] (Store 3-struct bytes)"
 probe_one "st3d {z0.d, z1.d, z2.d}, p0, [x0] (Store 3-struct doublewords)"
 probe_one "st3h {z0.h, z1.h, z2.h}, p0, [x0] (Store 3-struct halfwords)"
+probe_one "st3q {z0.q-z2.q}, p0, [x0] (st3 128b elem)" "sme" "$EXPECT_M5"
 probe_one "st3w {z0.s, z1.s, z2.s}, p0, [x0] (Store 3-struct words)"
 probe_one "st4b {z0.b, z1.b, z2.b, z3.b}, p0, [x0] (Store 4-struct bytes)"
 probe_one "st4d {z0.d, z1.d, z2.d, z3.d}, p0, [x0] (Store 4-struct doublewords)"
 probe_one "st4h {z0.h, z1.h, z2.h, z3.h}, p0, [x0] (Store 4-struct halfwords)"
+probe_one "st4q {z0.q-z3.q}, p0, [x0] (st4 128b elem)" "sme" "$EXPECT_M5"
 probe_one "st4w {z0.s, z1.s, z2.s, z3.s}, p0, [x0] (Store 4-struct words)"
+probe_one "stmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S8 sparse)" sme 132
 probe_one "stnt1b {z0.b}, p0, [x0] (Non-temporal store bytes)"
 probe_one "stnt1b {z0.b,z8.b}, pn8, [x0] (stnt1b strided 2)" sm
 probe_one "stnt1d {z0.d}, p0, [x0] (Non-temporal store dblwords)"
@@ -1065,6 +1111,7 @@ probe_one "stnt1h {z0.h}, p0, [x0] (Non-temporal store halfwords)"
 probe_one "stnt1h {z0.h,z8.h}, pn8, [x0] (stnt1h strided 2)" sm
 probe_one "stnt1w {z0.s}, p0, [x0] (Non-temporal store words)"
 probe_one "stnt1w {z0.s,z8.s}, pn8, [x0] (stnt1w strided 2)" sm
+probe_one "str pn8, [x0] (store pred-as-counter)" "sme" "$EXPECT_M5"
 probe_one "str za[w12,0], [x0] (store ZA array vec)"
 probe_one "str zt0, [x0] (store ZT0)" sme
 probe_one "sub z0.b, z1.b, z2.b (INT8 sub)"
@@ -1088,6 +1135,8 @@ probe_one "sudot za.s[w8,0,VGx2], {z0.b-z1.b}, z2.b (2v sudot single)"
 probe_one "sudot za.s[w8,0,VGx4], {z0.b-z3.b}, z4.b (4v sudot single)"
 probe_one "sumlall za.s[w8,0:3,VGx2], {z0.b-z1.b}, z2.b (2v sumlall sgl)"
 probe_one "sumlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b (4v sumlall sgl)"
+probe_one "sumop4a za0.s, z0.b, z4.b (MOP4 S*U qtr-tile acc)" sme 132
+probe_one "sumop4s za0.s, z0.b, z4.b (MOP4 S*U qtr-tile sub)" sme 132
 probe_one "sumopa za0.s, p0/m, p0/m, z0.b, z1.b (s*u outer)"
 probe_one "sumopa za0.s, p0/m, p1/m, z0.b, z1.b (S8*U8->I32)"
 probe_one "sumops za0.s, p0/m, p0/m, z0.b, z1.b (Signed*unsigned outer prod sub)"
@@ -1098,6 +1147,7 @@ probe_one "sunpk {z0.s-z3.s}, {z2.h-z3.h} (4-vec sunpk h->s)"
 probe_one "sunpkhi z0.h, z1.b (unpack hi s)"
 probe_one "sunpklo z0.h, z1.b (unpack lo s)"
 probe_one "suqadd z0.s, p0/m, z0.s, z1.s (Signed sat add unsigned)"
+probe_one "sutmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S*U sparse)" sme 132
 probe_one "suvdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Signedxunsigned vdot)"
 probe_one "svdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Signed vertical dot)"
 probe_one "svdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (2way signed vdot)"
@@ -1150,11 +1200,13 @@ probe_one "umax z0.b, p0/m, z0.b, z1.b (unsigned max)"
 probe_one "umax {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v umax mv)"
 probe_one "umax {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v umax mv)"
 probe_one "umaxp z0.s, p0/m, z0.s, z1.s (UMAXP)"
+probe_one "umaxqv v0.4s, p0, z1.s (umax reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "umaxv b0, p0, z1.b (UINT8 max)"
 probe_one "umin z0.b, p0/m, z0.b, z1.b (unsigned min)"
 probe_one "umin {z0.s-z1.s}, {z0.s-z1.s}, {z2.s-z3.s} (2v umin mv)"
 probe_one "umin {z0.s-z3.s}, {z0.s-z3.s}, {z4.s-z7.s} (4v umin mv)"
 probe_one "uminp z0.s, p0/m, z0.s, z1.s (UMINP)"
+probe_one "uminqv v0.4s, p0, z1.s (umin reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "uminv b0, p0, z1.b (UINT8 min)"
 probe_one "umlal za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h (2vx1 umlal)"
 probe_one "umlal za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h (4vx1 umlal)"
@@ -1185,6 +1237,8 @@ probe_one "umlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b[0] (4v umlsll idx)"
 probe_one "umlsll za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v umlsll mv)"
 probe_one "umlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v umlsll mv)"
 probe_one "ummla z0.s, z1.b, z2.b (Unsigned 8b matrix mul accum)" sme 132
+probe_one "umop4a za0.s, z0.b, z4.b (MOP4 U8 qtr-tile acc)" sme 132
+probe_one "umop4s za0.s, z0.b, z4.b (MOP4 U8 qtr-tile sub)" sme 132
 probe_one "umopa za0.s, p0/m, p0/m, z0.b, z1.b (INT8 outer u)"
 probe_one "umopa za0.s, p0/m, p1/m, z0.b, z1.b (U8->I32)"
 probe_one "umopa za0.d, p0/m, p0/m, z0.h, z1.h (I16->I64)"
@@ -1249,11 +1303,14 @@ probe_one "usmlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b (4v usmlall sgl)"
 probe_one "usmlall za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v usmlall mv)"
 probe_one "usmlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v usmlall mv)"
 probe_one "usmmla z0.s, z1.b, z2.b (Mixed 8b matrix mul accum)" sme 132
+probe_one "usmop4a za0.s, z0.b, z4.b (MOP4 U*S qtr-tile acc)" sme 132
+probe_one "usmop4s za0.s, z0.b, z4.b (MOP4 U*S qtr-tile sub)" sme 132
 probe_one "usmopa za0.s, p0/m, p0/m, z0.b, z1.b (u*s outer)"
 probe_one "usmopa za0.s, p0/m, p1/m, z0.b, z1.b (U8*S8->I32)"
 probe_one "usmops za0.s, p0/m, p0/m, z0.b, z1.b (Unsigned*signed outer prod sub)"
 probe_one "usqadd z0.s, p0/m, z0.s, z1.s (Unsigned sat add signed)"
 probe_one "usra z0.s, z1.s, #1 (Unsigned shift right+accum)"
+probe_one "ustmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U*S sparse)" sme 132
 probe_one "usublb z0.s, z1.h, z2.h (Unsigned sub long bottom)"
 probe_one "usublt z0.s, z1.h, z2.h (Unsigned sub long top)"
 probe_one "usubwb z0.s, z0.s, z1.h (Unsigned sub wide, bottom)"
@@ -1265,6 +1322,7 @@ probe_one "uunpk {z0.h-z3.h}, {z2.b-z3.b} (4v uunpk b->h)"
 probe_one "uunpk {z0.s-z3.s}, {z2.h-z3.h} (4v uunpk h->s)"
 probe_one "uunpkhi z0.h, z1.b (unpack hi u)"
 probe_one "uunpklo z0.h, z1.b (unpack lo u)"
+probe_one "utmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U8 sparse)" sme 132
 probe_one "uvdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Unsigned vertical dot)"
 probe_one "uvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (2way unsigned vdot)"
 probe_one "uxtb z0.h, p0/m, z1.h (zero ext b)"
@@ -1276,14 +1334,20 @@ probe_one "uzp1 z0.b, z1.b, z2.b (deintrlv lo)"
 probe_one "uzp1 p0.s, p0.s, p1.s (Deinterleave preds, low)"
 probe_one "uzp2 z0.b, z1.b, z2.b (deintrlv hi)"
 probe_one "uzp2 p0.s, p0.s, p1.s (Deinterleave preds, high)"
+probe_one "uzpq1 z0.s, z1.s, z2.s (unzip per 128b lo)" "sme" "$EXPECT_M5"
+probe_one "uzpq2 z0.s, z1.s, z2.s (unzip per 128b hi)" "sme" "$EXPECT_M5"
 probe_one "whilege p0.s, x0, x1 (while >=)"
+probe_one "whilege pn8.s, x0, x1, vlx2 (while GE pred pair)" "sme" "$EXPECT_M5"
 probe_one "whilegt p0.s, x0, x1 (while >)"
+probe_one "whilegt pn8.s, x0, x1, vlx2 (while GT pred pair)" "sme" "$EXPECT_M5"
 probe_one "whilehi p0.s, x0, x1 (Pred while higher, unsigned)"
 probe_one "whilehs p0.s, x0, x1 (Pred while higher/same, uns)"
 probe_one "whilele p0.s, x0, x1 (Pred while less-or-equal)"
+probe_one "whilele pn8.s, x0, x1, vlx2 (while LE pred pair)" "sme" "$EXPECT_M5"
 probe_one "whilelo p0.s, x0, x1 (Pred while lower, unsigned)"
 probe_one "whilels p0.s, x0, x1 (Pred while lower/same, uns)"
 probe_one "whilelt p0.s, xzr, x0 (while lt)"
+probe_one "whilelt pn8.s, x0, x1, vlx2 (while LT pred pair)" "sme" "$EXPECT_M5"
 probe_one "whilerw p0.s, x0, x1 (Pred while read-after-write)"
 probe_one "whilewr p0.s, x0, x1 (Pred while write-after-read)"
 probe_one "wrffr p0.b (Write first-fault register)" sme 132
@@ -1298,6 +1362,8 @@ probe_one "zip1 z0.b, z1.b, z2.b (interleave lo)"
 probe_one "zip1 p0.s, p0.s, p1.s (Interleave predicates, low)"
 probe_one "zip2 z0.b, z1.b, z2.b (interleave hi)"
 probe_one "zip2 p0.s, p0.s, p1.s (Interleave predicates, high)"
+probe_one "zipq1 z0.s, z1.s, z2.s (zip per 128b lo)" "sme" "$EXPECT_M5"
+probe_one "zipq2 z0.s, z1.s, z2.s (zip per 128b hi)" "sme" "$EXPECT_M5"
 fi # end SKIP_OPS
 # ===========================================================================================================
 # [6S] STRESS TESTING — Throughput & Parallelism
