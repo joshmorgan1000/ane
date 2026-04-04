@@ -2,23 +2,13 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const projectRoot = path.join(__dirname, '../../');
+
 console.log('Building and running test_mnist benchmark via mnist_demo.sh...');
-let smeOutput = '';
-try {
-  smeOutput = execSync('bash mnist_demo.sh', { cwd: path.join(__dirname, '../../') }).toString();
-} catch (e) {
-  console.error('Failed to run mnist_demo.sh', e.message);
-  smeOutput = e.stdout ? e.stdout.toString() : '';
-}
+const smeOutput = execSync('bash mnist_demo.sh', { cwd: projectRoot }).toString();
 
 console.log('Running mnist_pytorch_train_gpu.py benchmark...');
-let pyOutput = '';
-try {
-  pyOutput = execSync('python3 ./scripts/mnist_pytorch_train_gpu.py', { cwd: path.join(__dirname, '../../') }).toString();
-} catch (e) {
-  console.error('Failed to run python mnist', e.message);
-  pyOutput = e.stdout ? e.stdout.toString() : '';
-}
+const pyOutput = execSync('python3 ./scripts/mnist_pytorch_train_gpu.py', { cwd: projectRoot }).toString();
 
 const smeThroughputMatches = [...smeOutput.matchAll(/throughput=([0-9.]+)/g)];
 const smeThroughput = smeThroughputMatches.length ? parseFloat(smeThroughputMatches[smeThroughputMatches.length - 1][1]) : 0;
@@ -39,6 +29,18 @@ if (pyAccMatch && pyAccMatch.length > 0) {
   }
 }
 
+// Fail hard if either benchmark didn't produce results
+if (!smeThroughput || !smeAcc) {
+  console.error(`FATAL: SME benchmark produced no results (throughput=${smeThroughput}, accuracy=${smeAcc})`);
+  console.error('SME output:', smeOutput);
+  process.exit(1);
+}
+if (!pyThroughput || !pyAcc) {
+  console.error(`FATAL: PyTorch benchmark produced no results (throughput=${pyThroughput}, accuracy=${pyAcc})`);
+  console.error('PyTorch output:', pyOutput);
+  process.exit(1);
+}
+
 const result = {
   sme: {
     throughput: smeThroughput,
@@ -54,4 +56,4 @@ fs.writeFileSync(
   path.join(__dirname, '../src/data/mnist_results.json'),
   JSON.stringify(result, null, 2)
 );
-console.log('MNIST results saved.');
+console.log(`MNIST results saved. SME: ${smeThroughput.toFixed(0)} samples/sec (${smeAcc}%) | PyTorch: ${pyThroughput.toFixed(0)} samples/sec (${pyAcc}%)`);

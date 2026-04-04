@@ -26,7 +26,7 @@ The four separate `za` matrix arrays, the focus on 8-bit integer operations, the
 
 ## Contention Benchmark
 
-To test whether SME and the "Neural Engine" share hardware, we ran a comprehensive benchmark measuring four independent compute paths — GPU (Metal `char4` INT8), CPU SME (`smopa` INT8), Apple's BNNS INT8 (`BNNSFilterCreateLayerFullyConnected` with `BNNSDataTypeInt8`), and NEON FP32 FMA — both in isolation and in every combination, for 10 seconds each, with heartbeat logging and proven-concurrent overlap windows.
+To test whether SME and the "Neural Engine" share hardware, we ran a comprehensive benchmark measuring five independent compute paths — GPU (Metal `char4` INT8), CPU SME (`smopa` INT8), Apple's BNNS INT8 (`BNNSFilterCreateLayerFullyConnected` with `BNNSDataTypeInt8`), CBLAS SGEMM FP32, and NEON FP32 FMA — both in isolation and in every combination, with heartbeat logging and proven-concurrent overlap windows.
 
 Results on Apple M4 Max:
 

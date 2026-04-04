@@ -13,7 +13,10 @@ follow_build_log() {
     # Follow the log, checking periodically if the path has changed
     while [[ -f "$LOCK_FILE" ]]; do
         if [[ -f "$LOG_PATH_FILE" ]]; then
-            current_log_path=$(cat "$LOG_PATH_FILE" 2>/dev/null || echo "")
+            current_log_path=$(cat "$LOG_PATH_FILE" 2>/dev/null) || {
+                echo -e "\033[1;33mWarning: Log path file exists but could not be read: $LOG_PATH_FILE\033[0m"
+                current_log_path=""
+            }
             # If log path changed, restart tail
             if [[ "$current_log_path" != "$last_log_path" && -n "$current_log_path" && -f "$current_log_path" ]]; then
                 # Kill previous tail if running
@@ -48,7 +51,10 @@ cleanup_lock() {
 }
 # Check for existing build
 if [[ -f "$LOCK_FILE" ]]; then
-    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null) || {
+        echo -e "\033[1;33mWarning: Lock file exists but could not be read: $LOCK_FILE\033[0m"
+        existing_pid=""
+    }
     # Check if the process is still running
     if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
         # Process is running - join the log output

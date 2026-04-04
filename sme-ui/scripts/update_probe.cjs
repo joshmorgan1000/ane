@@ -94,14 +94,21 @@ child.on('close', (code) => {
     const dataDir = join(__dirname, '../src/data');
     if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
     
-    const finalData = { 
-      timestamp: new Date().toISOString(), 
-      sysInfo, 
-      sections: sections.filter(s => s.items && s.items.length > 0) 
+    const filteredSections = sections.filter(s => s.items && s.items.length > 0);
+    if (filteredSections.length === 0) {
+      console.error('\n❌ Probe produced no usable sections — parsed output contained zero items.');
+      process.exit(1);
+    }
+
+    const finalData = {
+      timestamp: new Date().toISOString(),
+      sysInfo,
+      sections: filteredSections
     };
     writeFileSync(join(dataDir, 'probe_results.json'), JSON.stringify(finalData, null, 2));
     console.log(`\n✅ Successfully updated probe_results.json with real LIVE hardware data for ${sysInfo.chip || 'Unknown'}!`);
   } catch (e) {
     console.error('\n❌ Failed to run probe or parse output:', e);
+    process.exit(1);
   }
 });

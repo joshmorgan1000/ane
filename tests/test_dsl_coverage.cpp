@@ -488,6 +488,62 @@ static void test_dense_fp32_dsl() {
     check("dense_fp32 32x32x16 via DSL", C, ref, M * N, 0.1f);
     std::free(A); std::free(B); std::free(bias); std::free(C); std::free(ref);
 }
+/** ========================================================================= Prepared Programs */
+static void test_prepared() {
+    printf("\n── Prepared Programs (compile-once, execute-many) ──\n");
+    // Test 1: prepared with pointer params only — run same silu kernel with different data
+    {
+        const int dim = 128;
+        auto* in1 = static_cast<float*>(alloc(dim * 4));
+        auto* in2 = static_cast<float*>(alloc(dim * 4));
+        auto* out = static_cast<float*>(alloc(dim * 4));
+        for (int i = 0; i < dim; i++) { in1[i] = (float)i * 0.1f; in2[i] = (float)i * -0.05f; }
+        ane::prepared p = ane::prepared::from(R"( silu(128, params[0], params[1]); )", 2);
+        // First exec
+        p.exec({in1, out});
+        float ref1 = in1[10] / (1.0f + expf(-in1[10]));
+        check_scalar("prepared silu exec#1", out[10], ref1, 1e-3f);
+        // Second exec with different data — no recompile
+        p.exec({in2, out});
+        float ref2 = in2[10] / (1.0f + expf(-in2[10]));
+        check_scalar("prepared silu exec#2 (reuse)", out[10], ref2, 1e-3f);
+        std::free(in1); std::free(in2); std::free(out);
+    }
+    // Test 2: prepared with runtime scalar params — different dims each call
+    {
+        auto* in  = static_cast<float*>(alloc(256 * 4));
+        auto* out = static_cast<float*>(alloc(256 * 4));
+        for (int i = 0; i < 256; i++) in[i] = (float)(i + 1) * 0.01f;
+        ane::prepared p = ane::prepared::from(R"( silu(params[0], params[0], params[1]); )", 2, 1);
+        // Run with dim=64
+        p.exec({in, out}, {64});
+        float ref64 = in[10] / (1.0f + expf(-in[10]));
+        check_scalar("prepared silu scalar dim=64", out[10], ref64, 1e-3f);
+        // Run with dim=128 — same compiled program, different scalar
+        p.exec({in, out}, {128});
+        float ref128 = in[100] / (1.0f + expf(-in[100]));
+        check_scalar("prepared silu scalar dim=128 (reuse)", out[100], ref128, 1e-3f);
+        std::free(in); std::free(out);
+    }
+    // Test 3: prepared elementwise_add — verify correctness across multiple execs
+    {
+        const int N = 256;
+        auto* a   = static_cast<float*>(alloc(N * 4));
+        auto* b   = static_cast<float*>(alloc(N * 4));
+        auto* out = static_cast<float*>(alloc(N * 4));
+        auto* ref = static_cast<float*>(alloc(N * 4));
+        for (int i = 0; i < N; i++) { a[i] = (float)i; b[i] = (float)(N - i); }
+        for (int i = 0; i < N; i++) ref[i] = a[i] + b[i];
+        ane::prepared p = ane::prepared::from(R"( elementwise_add(256, params[0], params[1], params[2]); )", 3);
+        p.exec({a, b, out});
+        check("prepared elementwise_add", out, ref, N, 1e-5f);
+        // Run again with swapped inputs
+        for (int i = 0; i < N; i++) ref[i] = b[i] + a[i];  // same result, just verifying re-exec works
+        p.exec({b, a, out});
+        check("prepared elementwise_add (re-exec swapped)", out, ref, N, 1e-5f);
+        std::free(a); std::free(b); std::free(out); std::free(ref);
+    }
+}
 /** ========================================================================= Main */
 int main() {
     printf("\n====== DSL Intrinsic Coverage Tests ======\n");
@@ -506,6 +562,7 @@ int main() {
     test_threshold();
     test_welford();
     test_dense_fp32_dsl();
+    test_prepared();
     printf("\n═══════════════════════════════\n  Results: %d / %d passed\n═══════════════════════════════\n\n",
         tests_passed, tests_total);
     return (tests_passed == tests_total) ? 0 : 1;

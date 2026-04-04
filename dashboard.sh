@@ -8,7 +8,8 @@ cd "$(dirname "$0")"
 # Detect Chip Type
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9]' | head -n 1)
 if [ -z "$CHIP" ]; then
-    CHIP=""
+    echo -e "\033[1;33mWarning: Could not detect Apple Silicon chip type. Using 'unknown' as chip name.\033[0m"
+    CHIP="unknown"
 fi
 echo -e " "
 echo -e "\033[35m────────\033[36m Apple Silicon $CHIP Hardware Dashboard \033[35m────────\033[0m"

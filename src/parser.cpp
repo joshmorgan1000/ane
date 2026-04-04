@@ -175,6 +175,7 @@ private:
     std::unordered_map<std::string, IntrinsicDef> intrinsics_;  ///< Intrinsic name → definition
     std::vector<PtrPatch> patches_;                      ///< Pointer fixups for exec-time patching
     std::vector<U32Patch> u32_patches_;                  ///< Scalar u32 fixups for exec-time patching
+    std::vector<U8Patch> u8_patches_;                    ///< Scalar u8 fixups for exec-time loop counts
     uint8_t next_reg_ = 2;                               ///< Next available z-register (0-1 reserved)
     program prog_;                                       ///< Bytecodes being built
     void advance() { cur_ = tok_.next(); }
@@ -423,8 +424,18 @@ private:
                 break;
             }
             case ArgType::F32: {
-                float val = parseFloat();
-                prog_.emit_raw(&val, 4);
+                if (cur_.type == TokenType::IDENT && cur_.text == "params") {
+                    // Runtime F32 from scalar param table — same 4-byte patch as U32
+                    advance();
+                    uint8_t idx = parseParamRef();
+                    size_t offset = prog_.mark();
+                    float placeholder = 0.0f;
+                    prog_.emit_raw(&placeholder, 4);
+                    u32_patches_.push_back({offset, idx});
+                } else {
+                    float val = parseFloat();
+                    prog_.emit_raw(&val, 4);
+                }
                 break;
             }
             case ArgType::PTR: {
@@ -440,6 +451,29 @@ private:
                 break;
             }
         }
+    }
+    /** --------------------------------------------------------------------------------------------- Find Closest Intrinsic
+     * @brief Finds the closest intrinsic name by prefix or edit distance for error suggestions.
+     * @param name The unrecognized intrinsic name
+     * @return A suggestion string, or empty if nothing is close
+     */
+    std::string findClosestIntrinsic(const std::string& name) const {
+        std::string best;
+        size_t best_score = 0;
+        for (const auto& [iname, _] : intrinsics_) {
+            // Prefix match: name is a prefix of an intrinsic or vice versa
+            size_t common = 0;
+            size_t min_len = std::min(name.size(), iname.size());
+            for (size_t i = 0; i < min_len; i++) {
+                if (name[i] == iname[i]) common++;
+                else break;
+            }
+            if (common > best_score && common >= 3) {
+                best_score = common;
+                best = iname;
+            }
+        }
+        return best;
     }
     /** --------------------------------------------------------------------------------------------- Parse Intrinsic Call
      * @brief Parses an intrinsic function call: name(arg1, arg2, ..., argN)
@@ -473,12 +507,19 @@ private:
             advance();
             std::string label(cur_.text);
             advance();
-            int count = parseNumber();
             auto it = labels_.find(label);
             if (it == labels_.end())
                 throw std::runtime_error("Undefined label '" + label + "'");
             size_t label_offset = it->second;
-            prog_.patch_u8(label_offset + 1, static_cast<uint8_t>(count));
+            if (cur_.type == TokenType::IDENT && cur_.text == "params") {
+                // Runtime loop count from scalar param table
+                advance();
+                uint8_t idx = parseParamRef();
+                u8_patches_.push_back({label_offset + 1, idx});
+            } else {
+                int count = parseNumber();
+                prog_.patch_u8(label_offset + 1, static_cast<uint8_t>(count));
+            }
             size_t body_start = label_offset + 2;
             uint16_t offset = static_cast<uint16_t>(prog_.mark() - body_start + 3);
             prog_.emit(Op::loop_end, offset);
@@ -489,8 +530,20 @@ private:
             uint8_t idx = parseParamRef();
             if (cur_.type == TokenType::PLUSEQUALS) {
                 advance();
-                int stride = parseNumber();
-                prog_.emit(Op::advance_param_stride, idx, uint32_t(stride));
+                if (cur_.type == TokenType::IDENT && cur_.text == "params") {
+                    // Runtime stride from scalar param table
+                    advance();
+                    uint8_t stride_idx = parseParamRef();
+                    prog_.emit_raw_u8(static_cast<uint8_t>(Op::advance_param_stride));
+                    prog_.emit_raw_u8(idx);
+                    size_t offset = prog_.mark();
+                    uint32_t placeholder = 0;
+                    prog_.emit_raw(&placeholder, 4);
+                    u32_patches_.push_back({offset, stride_idx});
+                } else {
+                    int stride = parseNumber();
+                    prog_.emit(Op::advance_param_stride, idx, uint32_t(stride));
+                }
             } else {
                 expect(TokenType::PLUSPLUS, "Expected '++' or '+='");
                 prog_.emit(Op::advance_param, idx);
@@ -503,9 +556,15 @@ private:
         advance();
         // Check for intrinsic function call: name(...)
         if (cur_.type == TokenType::LPAREN) {
-            if (!tryParseIntrinsic(name))
-                throw std::runtime_error("Unknown intrinsic '" + name + "' at line "
-                    + std::to_string(cur_.line));
+            if (!tryParseIntrinsic(name)) {
+                std::string suggestion = findClosestIntrinsic(name);
+                std::string msg = "Unknown intrinsic '" + name + "' at line "
+                    + std::to_string(cur_.line);
+                if (!suggestion.empty()) {
+                    msg += ". Did you mean '" + suggestion + "'?";
+                }
+                throw std::runtime_error(msg);
+            }
             return;
         }
         if (cur_.type == TokenType::COLON) {
@@ -614,6 +673,7 @@ public:
     uint8_t numVars() const { return next_reg_ - 2; }
     std::vector<PtrPatch> takePatches() { return std::move(patches_); }
     std::vector<U32Patch> takeU32Patches() { return std::move(u32_patches_); }
+    std::vector<U8Patch> takeU8Patches() { return std::move(u8_patches_); }
 };
 /** --------------------------------------------------------------------------------------------------------- script Implementation
  */
@@ -624,6 +684,7 @@ void script::compile() {
     compiled_ = c.compile();
     patches_ = c.takePatches();
     u32_patches_ = c.takeU32Patches();
+    u8_patches_ = c.takeU8Patches();
     compiled_valid_ = true;
 }
 void script::exec(std::initializer_list<const void*> params) {
@@ -663,6 +724,74 @@ void script::exec(std::initializer_list<const void*> ptrs,
     for (const auto& patch : u32_patches_) {
         p.patch_u32(preamble_size + patch.bytecode_offset, scalar_vec[patch.param_idx]);
     }
+    for (const auto& patch : u8_patches_) {
+        p.patch_u8(preamble_size + patch.bytecode_offset, static_cast<uint8_t>(scalar_vec[patch.param_idx]));
+    }
     p.exec();
+}
+/** --------------------------------------------------------------------------------------------------------- prepared Implementation
+ */
+prepared prepared::from(const char* source, uint8_t num_ptrs, uint8_t num_scalars) {
+    return from(std::string(source), num_ptrs, num_scalars);
+}
+prepared prepared::from(const std::string& source, uint8_t num_ptrs, uint8_t num_scalars) {
+    Compiler c(source);
+    program compiled = c.compile();
+    auto ptr_patches  = c.takePatches();
+    auto u32_patches  = c.takeU32Patches();
+    auto u8_patches   = c.takeU8Patches();
+    prepared p;
+    p.num_ptrs_ = num_ptrs;
+    p.ptr_patches_ = std::move(ptr_patches);
+    p.u32_patches_ = std::move(u32_patches);
+    p.u8_patches_ = std::move(u8_patches);
+    // Build preamble: set_param opcodes with placeholder u64 values
+    // Each set_param is [0x37][idx:u8][ptr:u64] = 10 bytes
+    for (uint8_t i = 0; i < num_ptrs; i++) {
+        p.ptr_preamble_.push_back(p.prog_.mark() + 2);  // offset of the u64 value
+        p.prog_.emit(Op::set_param, i, uint64_t(0));
+    }
+    p.preamble_size_ = p.prog_.mark();
+    p.prog_.append(compiled);
+    return p;
+}
+void prepared::exec(std::initializer_list<const void*> ptrs) {
+    // Patch set_param preamble pointer values in-place
+    auto it = ptrs.begin();
+    for (size_t i = 0; i < ptr_preamble_.size() && it != ptrs.end(); i++, ++it) {
+        uint64_t val = reinterpret_cast<uintptr_t>(*it);
+        prog_.patch_u64(ptr_preamble_[i], val);
+    }
+    // Patch inline PTR arguments in the body
+    std::vector<const void*> ptr_vec(ptrs);
+    for (const auto& patch : ptr_patches_) {
+        auto ptr_val = reinterpret_cast<uintptr_t>(ptr_vec[patch.param_idx]);
+        prog_.patch_u64(preamble_size_ + patch.bytecode_offset, ptr_val);
+    }
+    prog_.exec();
+}
+void prepared::exec(std::initializer_list<const void*> ptrs,
+                    std::initializer_list<uint32_t> scalars) {
+    // Patch set_param preamble pointer values in-place
+    auto it = ptrs.begin();
+    for (size_t i = 0; i < ptr_preamble_.size() && it != ptrs.end(); i++, ++it) {
+        uint64_t val = reinterpret_cast<uintptr_t>(*it);
+        prog_.patch_u64(ptr_preamble_[i], val);
+    }
+    // Patch inline PTR arguments in the body
+    std::vector<const void*> ptr_vec(ptrs);
+    for (const auto& patch : ptr_patches_) {
+        auto ptr_val = reinterpret_cast<uintptr_t>(ptr_vec[patch.param_idx]);
+        prog_.patch_u64(preamble_size_ + patch.bytecode_offset, ptr_val);
+    }
+    // Patch inline U32/F32 scalar arguments in the body
+    std::vector<uint32_t> scalar_vec(scalars);
+    for (const auto& patch : u32_patches_) {
+        prog_.patch_u32(preamble_size_ + patch.bytecode_offset, scalar_vec[patch.param_idx]);
+    }
+    for (const auto& patch : u8_patches_) {
+        prog_.patch_u8(preamble_size_ + patch.bytecode_offset, static_cast<uint8_t>(scalar_vec[patch.param_idx]));
+    }
+    prog_.exec();
 }
 } // namespace ane

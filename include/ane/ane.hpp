@@ -227,28 +227,12 @@ inline void dispatch(Op op, Args... args) {
  */
 class Compiler;  // Forward declaration — defined in parser.cpp
 class program {
-    friend class Compiler;  ///< DSL compiler needs emit/mark/patch access
-    friend class script;    ///< script::exec() needs emit/mark/patch/append access
+    friend class Compiler;  ///< DSL compiler needs raw emit/patch access
+    friend class script;    ///< script::exec() needs patch/append access
+    friend class prepared;  ///< prepared::exec() needs patch access
 private:
     std::vector<uint8_t> bytecodes_;  ///< Accumulated bytecode buffer
     std::vector<size_t> loop_marks_;  ///< Stack of loop body start offsets for begin_loop/end_loop
-    /** --------------------------------------------------------------------------------------------- Emit
-     * @brief Appends a single opcode and its arguments to the program buffer.
-     * @param op The opcode to emit
-     * @param args Immediates and operand pointers in encoding order
-     * @return Reference to this program for chaining
-     */
-    template<typename... Args>
-        requires (AllowedParameterTypes<Args> && ...)
-    program& emit(Op op, Args... args) {
-        bytecodes_.push_back(static_cast<uint8_t>(op));
-        auto append = [&](auto arg) {
-            const auto* p = reinterpret_cast<const uint8_t*>(&arg);
-            bytecodes_.insert(bytecodes_.end(), p, p + sizeof(arg));
-        };
-        (append(args), ...);
-        return *this;
-    }
     /** --------------------------------------------------------------------------------------------- Emit Raw Bytes
      * @brief Appends raw bytes to the bytecode buffer. Used by the DSL compiler for intrinsic
      * function calls where argument types are determined at parse time.
@@ -284,6 +268,23 @@ private:
         bytecodes_.insert(bytecodes_.end(), other.bytecodes_.begin(), other.bytecodes_.end());
     }
 public:
+    /** --------------------------------------------------------------------------------------------- Emit
+     * @brief Appends a single opcode and its arguments to the program buffer.
+     * @param op The opcode to emit
+     * @param args Immediates and operand pointers in encoding order
+     * @return Reference to this program for chaining
+     */
+    template<typename... Args>
+        requires (AllowedParameterTypes<Args> && ...)
+    program& emit(Op op, Args... args) {
+        bytecodes_.push_back(static_cast<uint8_t>(op));
+        auto append_arg = [&](auto arg) {
+            const auto* p = reinterpret_cast<const uint8_t*>(&arg);
+            bytecodes_.insert(bytecodes_.end(), p, p + sizeof(arg));
+        };
+        (append_arg(args), ...);
+        return *this;
+    }
     /** --------------------------------------------------------------------------------------------- Exec
      * @brief Executes the entire program in a single streaming session (one smstart/smstop pair).
      *  - All z-registers and ZA tiles persist across opcodes within this call.
@@ -395,6 +396,25 @@ struct U32Patch {
     size_t bytecode_offset;  ///< Offset within compiled bytecodes where the u32 placeholder sits
     uint8_t param_idx;       ///< Which scalar params[N] to fill in (0-7)
 };
+/** --------------------------------------------------------------------------------------------------------- U8Patch
+ * @struct U8Patch
+ * @brief Records a bytecode offset where a params[N] runtime u8 placeholder needs to be patched.
+ * The scalar value from exec() is truncated to 8 bits. Used for loop counts in goto statements.
+ */
+struct U8Patch {
+    size_t bytecode_offset;  ///< Offset within compiled bytecodes where the u8 placeholder sits
+    uint8_t param_idx;       ///< Which scalar params[N] to fill in (0-7)
+};
+/** --------------------------------------------------------------------------------------------------------- f32 Bit-Cast Helper
+ * @brief Bit-casts a float to uint32_t for passing F32 runtime params through the scalar exec() API.
+ * @param val The float value to encode
+ * @return The same bits reinterpreted as uint32_t
+ */
+inline uint32_t f32(float val) {
+    uint32_t bits;
+    std::memcpy(&bits, &val, 4);
+    return bits;
+}
 class script {
 public:
     std::string source;      ///< DSL source text
@@ -402,6 +422,7 @@ private:
     program compiled_;        ///< Compiled bytecodes (without set_param preamble)
     std::vector<PtrPatch> patches_;      ///< Pointer fixups for intrinsic function calls
     std::vector<U32Patch> u32_patches_;  ///< Scalar u32 fixups for runtime intrinsic arguments
+    std::vector<U8Patch> u8_patches_;    ///< Scalar u8 fixups for runtime loop counts
     bool compiled_valid_ = false;        ///< Whether compiled_ is up to date
 public:
     script(const char* src);
@@ -423,6 +444,53 @@ public:
      *  - Scalar params map to params[N] in U32 positions (runtime-configurable dimensions/strides).
      * @param ptrs Ordered list of parameter pointers
      * @param scalars Ordered list of runtime u32 scalar values (dimensions, strides, counts)
+     */
+    void exec(std::initializer_list<const void*> ptrs,
+              std::initializer_list<uint32_t> scalars);
+};
+/** --------------------------------------------------------------------------------------------------------- prepared
+ * @class prepared
+ * @brief A compile-once, execute-many program with zero-copy parameter updates.
+ *
+ * Unlike script::exec() which copies bytecodes and patches on every call, a prepared program
+ * pre-bakes the set_param preamble and compiled body into a single buffer. On each exec(),
+ * it patches parameter pointers and scalars in-place and runs — no allocation, no copy.
+ *
+ * Usage:
+ * @code
+ *   ane::prepared p = ane::prepared::from(R"(
+ *       silu(params[0], params[1], params[2]);
+ *   )", 2, 1);
+ *
+ *   // Hot loop — no compile, no copy, patches in-place
+ *   p.exec({in1, out1}, {128});
+ *   p.exec({in2, out2}, {256});
+ * @endcode
+ */
+class prepared {
+private:
+    program prog_;                          ///< Pre-baked bytecodes (preamble + body)
+    uint8_t num_ptrs_;                      ///< Number of pointer params in the preamble
+    std::vector<size_t> ptr_preamble_;      ///< Offsets of u64 values in set_param instructions
+    std::vector<PtrPatch> ptr_patches_;     ///< Inline PTR patch locations (relative to body start)
+    std::vector<U32Patch> u32_patches_;     ///< Inline U32/F32 patch locations (relative to body start)
+    std::vector<U8Patch> u8_patches_;       ///< Inline U8 patch locations (loop counts, relative to body start)
+    size_t preamble_size_;                  ///< Byte offset where the compiled body starts
+public:
+    /** --------------------------------------------------------------------------------------------- from
+     * @brief Compile a DSL source into a prepared program.
+     * @param source DSL source text
+     * @param num_ptrs Number of pointer parameters (used for set_param preamble)
+     * @param num_scalars Number of scalar parameters (unused at prepare time, validated at exec)
+     */
+    static prepared from(const char* source, uint8_t num_ptrs, uint8_t num_scalars = 0);
+    static prepared from(const std::string& source, uint8_t num_ptrs, uint8_t num_scalars = 0);
+    /** --------------------------------------------------------------------------------------------- exec (ptrs only)
+     * @brief Execute with pointer parameters only. Patches in-place, runs, no copy.
+     */
+    void exec(std::initializer_list<const void*> ptrs);
+    /** --------------------------------------------------------------------------------------------- exec (ptrs + scalars)
+     * @brief Execute with pointer and scalar parameters. Patches in-place, runs, no copy.
      */
     void exec(std::initializer_list<const void*> ptrs,
               std::initializer_list<uint32_t> scalars);

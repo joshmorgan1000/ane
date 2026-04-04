@@ -2,7 +2,7 @@
 
 Bare-metal ARM SME2 bytecode interpreter for Apple Silicon (M4/M5).
 
-A C++20 static library providing 28 custom opcodes executed by a hand-written ARM64 bytecode interpreter written in assembly. All matrix operations run directly on the SME2 `za` tiles — the same hardware that Apple's "Neural Engine" software stack targets — bypassing CoreML and BNNS entirely. For the full story on that discovery, see [docs/DISCOVERY.md](docs/DISCOVERY.md).
+A C++20 static library providing 127 custom opcodes executed by a hand-written ARM64 bytecode interpreter written in assembly. All matrix operations run directly on the SME2 `za` tiles — the same hardware that Apple's "Neural Engine" software stack targets — bypassing CoreML and BNNS entirely. For the full story on that discovery, see [docs/DISCOVERY.md](docs/DISCOVERY.md).
 
 ---
 

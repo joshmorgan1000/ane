@@ -25,12 +25,26 @@ set -u
 WORK=$(mktemp -d /tmp/ane_test.XXXXXX)
 trap "rm -rf $WORK" EXIT
 cd "$WORK"
-DURATION=10
+DURATION=300
 # ── Auto-detect core topology ────────────────────────────────────────────────
-CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Apple Silicon")
-PCORES=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo 4)
-ECORES=$(sysctl -n hw.perflevel1.logicalcpu 2>/dev/null || echo 0)
-TOTAL_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null || echo "$((PCORES + ECORES))")
+CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null) || {
+    echo "WARNING: Could not detect CPU brand string via sysctl"
+    CHIP="Apple Silicon (unknown)"
+}
+PCORES=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null) || {
+    echo "FATAL: Could not detect P-core count (hw.perflevel0.logicalcpu)."
+    echo "       This test suite requires Apple Silicon with performance level sysctl support."
+    exit 1
+}
+ECORES=$(sysctl -n hw.perflevel1.logicalcpu 2>/dev/null) || {
+    echo "WARNING: Could not detect E-core count (hw.perflevel1.logicalcpu) — assuming 0"
+    ECORES=0
+}
+TOTAL_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null) || {
+    echo "FATAL: Could not detect total logical CPU count (hw.logicalcpu)."
+    echo "       This test suite requires Apple Silicon with sysctl support."
+    exit 1
+}
 # SME runs on P-cores (Super/Performance cores with SME units)
 SME_THREADS=$PCORES
 # BNNS benefits from P-cores
@@ -110,6 +124,9 @@ let fc=queue.makeCommandBuffer()!;fc.commit();fc.waitUntilCompleted()
 SWIFT
 # ── SME assembly kernel ─────────────────────────────────────────────────────
 cat > sme_kern.s << 'ASM'
+// smopa_loop(uint64_t iters)
+// Enters/exits streaming mode per call so other threads can acquire it
+// between calls. Caller controls chunk size to balance throughput vs sharing.
 .section __TEXT,__text,regular,pure_instructions
 .global _smopa_loop
 .p2align 4
@@ -143,7 +160,9 @@ cat > sme_worker.c << 'CSRC'
 #include <pthread.h>
 #include <sys/time.h>
 extern void smopa_loop(uint64_t iters);
-#define CHUNK 10000000ULL
+// Keep chunks small so smstart/smstop cycles are short (~1ms each),
+// giving other processes a chance to acquire streaming mode (BNNS/AMX).
+#define CHUNK 50000ULL
 #define OPS_PER_ITER 16384.0
 #ifndef NT
 #define NT 4
@@ -448,13 +467,14 @@ CSRC
 # Build
 # =============================================================================
 echo "Building..."
-clang -c -arch arm64 -march=armv9-a+sme2+sve2+sme-lutv2 sme_kern.s -o sme_kern.o 2>/dev/null || { echo "FAIL: sme asm"; exit 1; }
-clang -O0 -arch arm64 -DNT=$SME_THREADS -o _sme sme_worker.c sme_kern.o -lpthread 2>/dev/null || { echo "FAIL: sme"; exit 1; }
-clang -c -arch arm64 neon_kern.s -o neon_kern.o 2>/dev/null || { echo "FAIL: neon asm"; exit 1; }
-clang -O0 -arch arm64 -DNT=$NEON_THREADS -o _neon neon_worker.c neon_kern.o -lpthread 2>/dev/null || { echo "FAIL: neon"; exit 1; }
-clang -O2 -arch arm64 -DNT=$BNNS_THREADS -o _bnns bnns_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: bnns"; exit 1; }
-clang -O2 -arch arm64 -DNT=$CBLAS_THREADS -o _cblas cblas_worker.c -framework Accelerate -lpthread 2>/dev/null || { echo "FAIL: cblas"; exit 1; }
-swiftc -O -o _gpu gpu_worker.swift -framework Metal -framework Foundation 2>/dev/null || { echo "FAIL: gpu"; exit 1; }
+BUILD_LOG="$WORK/build.log"
+clang -c -arch arm64 -march=armv9-a+sme2+sve2+sme-lutv2 sme_kern.s -o sme_kern.o 2>>"$BUILD_LOG" || { echo "FAIL: sme asm — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+clang -O0 -arch arm64 -DNT=$SME_THREADS -o _sme sme_worker.c sme_kern.o -lpthread 2>>"$BUILD_LOG" || { echo "FAIL: sme — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+clang -c -arch arm64 neon_kern.s -o neon_kern.o 2>>"$BUILD_LOG" || { echo "FAIL: neon asm — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+clang -O0 -arch arm64 -DNT=$NEON_THREADS -o _neon neon_worker.c neon_kern.o -lpthread 2>>"$BUILD_LOG" || { echo "FAIL: neon — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+clang -O2 -arch arm64 -DNT=$BNNS_THREADS -o _bnns bnns_worker.c -framework Accelerate -lpthread 2>>"$BUILD_LOG" || { echo "FAIL: bnns — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+clang -O2 -arch arm64 -DNT=$CBLAS_THREADS -o _cblas cblas_worker.c -framework Accelerate -lpthread 2>>"$BUILD_LOG" || { echo "FAIL: cblas — compiler output:"; cat "$BUILD_LOG"; exit 1; }
+swiftc -O -o _gpu gpu_worker.swift -framework Metal -framework Foundation 2>>"$BUILD_LOG" || { echo "FAIL: gpu — compiler output:"; cat "$BUILD_LOG"; exit 1; }
 echo "  Done."
 echo ""
 echo "  GPU:  Metal char4 INT8 (1M threads × 10K iters per dispatch)"
@@ -478,25 +498,38 @@ def read_log(path):
             except ValueError: pass
     return entries
 def compute_throughput(logs):
-    active = {k: v for k, v in logs.items() if len(v) >= 3}
-    if not active:
-        print("  No valid log data."); return None
-    t_start = max(v[0][0] for v in active.values())
-    t_end = min(v[-1][0] for v in active.values())
+    # Every requested worker MUST produce concurrent results or the test fails
+    failed = False
+    for name, entries in logs.items():
+        if len(entries) == 0:
+            print(f"  FAIL: {name} produced 0 heartbeats — binary may have crashed")
+            failed = True
+        elif len(entries) < 2:
+            print(f"  FAIL: {name} produced only {len(entries)} heartbeat(s) — need at least 2")
+            failed = True
+    if failed:
+        print("  TEST FAILED: not all workers produced data."); return None
+    # Concurrent window: overlap of ALL workers (not a subset)
+    t_start = max(v[0][0] for v in logs.values())
+    t_end = min(v[-1][0] for v in logs.values())
     if t_end <= t_start:
-        print("  No overlapping window found."); return None
+        print("  FAIL: No overlapping time window across all workers.")
+        print("  TEST FAILED."); return None
     window_sec = (t_end - t_start) / 1e9
     print(f"  Concurrent window: {window_sec:.2f}s")
     print(f"  {'Worker':<12s}  {'Ops/sec':>14s}  {'TOPS':>8s}  {'Heartbeats':>10s}")
     print(f"  {'-'*12}  {'-'*14}  {'-'*8}  {'-'*10}")
     result_tops = {}; total_ops_sec = 0
-    for name, entries in sorted(active.items()):
+    for name, entries in sorted(logs.items()):
         interior = [(t, o) for t, o in entries if t > t_start and t < t_end]
         if len(interior) < 2:
-            print(f"  {name:<12s}  {'(insufficient)':>14s}"); continue
+            print(f"  FAIL: {name} has {len(interior)} interior heartbeats (need 2+)")
+            print("  TEST FAILED."); return None
         dt = (interior[-1][0] - interior[0][0]) / 1e9
+        if dt <= 0:
+            print(f"  FAIL: {name} interior span is 0s")
+            print("  TEST FAILED."); return None
         dops = interior[-1][1] - interior[0][1]
-        if dt <= 0: continue
         ops_sec = dops / dt; tops = ops_sec / 1e12
         total_ops_sec += ops_sec; result_tops[name] = tops
         print(f"  {name:<12s}  {ops_sec:>14,.0f}  {tops:>8.3f}  {len(interior):>10d}")
@@ -536,72 +569,220 @@ PYANALYZE
 # =============================================================================
 # Run tests
 # =============================================================================
+MIN_OVERLAP_SEC=10
 run_test() {
     local label="$1"; shift
     local workers=("$@")
     rm -f "$WORK"/*.log 2>/dev/null
     local pids=()
+    local bnns_pid=""
+    # Launch BNNS first — it needs streaming mode established before any
+    # other CPU-heavy worker starts competing for it.
+    local has_bnns=0
+    for w in "${workers[@]}"; do
+        if [ "$w" = "bnns" ]; then has_bnns=1; break; fi
+    done
+    if [ "$has_bnns" -eq 1 ]; then
+        ./_bnns "$DURATION" > "$WORK/bnns.log" 2>"$WORK/bnns.err" & bnns_pid=$!
+        pids+=($bnns_pid)
+        # Wait until BNNS is warmed up (multiple heartbeats) before launching
+        # anything else. BNNS needs its internal AMX thread pools fully
+        # initialized or it will Bus error under CPU pressure.
+        local bnns_wait=0
+        local bnns_lines=0
+        while [ "$bnns_wait" -lt 15 ]; do
+            sleep 1
+            bnns_wait=$((bnns_wait + 1))
+            if ! kill -0 "$bnns_pid" 2>/dev/null; then
+                printf "\n  BNNS crashed during startup (within ${bnns_wait}s)\n"
+                return 1
+            fi
+            if [ -s "$WORK/bnns.log" ]; then
+                bnns_lines=$(wc -l < "$WORK/bnns.log")
+                if [ "$bnns_lines" -ge 5 ]; then break; fi
+            fi
+        done
+        if [ "$bnns_lines" -lt 5 ]; then
+            printf "\n  BNNS not stable after 15s ($bnns_lines heartbeats)\n"
+            kill "$bnns_pid" 2>/dev/null
+            return 1
+        fi
+    fi
     for w in "${workers[@]}"; do
         case "$w" in
-            gpu)  ./_gpu  > "$WORK/gpu.log"  2>/dev/null & pids+=($!) ;;
-            sme)  ./_sme  "$DURATION" > "$WORK/sme.log"  2>/dev/null & pids+=($!) ;;
-            bnns)  ./_bnns  "$DURATION" > "$WORK/bnns.log"  2>/dev/null & pids+=($!) ;;
+            gpu)   ./_gpu  > "$WORK/gpu.log"  2>/dev/null & pids+=($!) ;;
+            sme)   ./_sme  "$DURATION" > "$WORK/sme.log"  2>/dev/null & pids+=($!) ;;
+            bnns)  ;; # already launched above
             cblas) ./_cblas "$DURATION" > "$WORK/cblas.log" 2>/dev/null & pids+=($!) ;;
             neon)  ./_neon  "$DURATION" > "$WORK/neon.log"  2>/dev/null & pids+=($!) ;;
+        esac
+    done
+    # Poll logs — kill workers early once we have enough concurrent overlap
+    local nw=${#workers[@]}
+    local poll_count=0
+    printf "  %-35s " "$label"
+    while true; do
+        sleep 2
+        poll_count=$((poll_count + 1))
+        # Check if all workers still alive
+        local alive=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && alive=$((alive+1)); done
+        if [ "$alive" -eq 0 ]; then
+            printf " workers exited after %ds\n" "$((poll_count * 2))"
+            break
+        fi
+        # If BNNS was requested but its process died while others are still running, fail fast
+        if [ -n "$bnns_pid" ] && ! kill -0 "$bnns_pid" 2>/dev/null; then
+            # Count how many non-BNNS workers are still alive
+            local others_alive=0
+            for pid in "${pids[@]}"; do
+                [ "$pid" = "$bnns_pid" ] && continue
+                kill -0 "$pid" 2>/dev/null && others_alive=$((others_alive+1))
+            done
+            if [ "$others_alive" -gt 0 ]; then
+                printf "\n  BNNS process died mid-test (other workers still running)\n"
+                if [ -s "$WORK/bnns.err" ]; then
+                    printf "  BNNS stderr:\n"
+                    sed 's/^/    /' "$WORK/bnns.err" | head -20
+                fi
+                for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+                for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null; done
+                return 1
+            fi
+        fi
+        # Check overlap via python (shell can't handle nanosecond-scale integers)
+        local logargs=""
+        for w in "${workers[@]}"; do logargs="$logargs $WORK/${w}.log"; done
+        local check_result check_stderr
+        check_stderr="$WORK/overlap_check.err"
+        check_result=$(python3 -c "
+import sys, os
+logs = sys.argv[1:]
+waiting = []
+first_ts = []
+last_ts = []
+for lf in logs:
+    name = os.path.basename(lf).replace('.log','')
+    if not os.path.exists(lf) or os.path.getsize(lf) == 0:
+        waiting.append(name); continue
+    lines = open(lf).readlines()
+    good = [l for l in lines if len(l.strip().split()) == 2]
+    if len(good) < 1:
+        waiting.append(name); continue
+    first_ts.append(int(good[0].split()[0]))
+    last_ts.append(int(good[-1].split()[0]))
+if waiting:
+    print(f'waiting:{(\", \").join(waiting)}')
+else:
+    t_start = max(first_ts)
+    t_end = min(last_ts)
+    if t_end > t_start:
+        overlap_sec = int((t_end - t_start) / 1_000_000_000)
+        print(f'overlap:{overlap_sec}')
+    else:
+        print('no_overlap')
+" $logargs 2>"$check_stderr")
+        if [ $? -ne 0 ]; then
+            printf "\n  FATAL: Overlap check Python script crashed:\n"
+            sed 's/^/    /' "$check_stderr"
+            for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+            for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null; done
+            return 1
+        fi
+        local elapsed=$((poll_count * 2))
+        case "$check_result" in
+            waiting:*)
+                local who="${check_result#waiting:}"
+                printf "\r  %-35s [%3ds] waiting on: %s          " "$label" "$elapsed" "$who"
+                ;;
+            overlap:*)
+                local overlap_sec="${check_result#overlap:}"
+                printf "\r  %-35s [%3ds] overlap: %ss / %ss" "$label" "$elapsed" "$overlap_sec" "$MIN_OVERLAP_SEC"
+                if [ "$overlap_sec" -ge "$MIN_OVERLAP_SEC" ]; then
+                    printf " — done!\n"
+                    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+                    break
+                fi
+                ;;
+            *)
+                printf "\r  %-35s [%3ds] all reporting, no overlap yet..." "$label" "$elapsed"
+                ;;
         esac
     done
     for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null; done
     local logfiles=()
     for w in "${workers[@]}"; do logfiles+=("${w}.log"); done
-    local output
+    local output json_line
     output=$(python3 analyze.py "$label" "$WORK" "${logfiles[@]}")
     echo "$output" | grep -v "^__RESULT__:"
-    local json_line
     json_line=$(echo "$output" | grep "^__RESULT__:" | sed 's/^__RESULT__://')
     if [ -n "$json_line" ]; then
         echo "{\"label\":\"$label\",\"tops\":$json_line}" >> "$WORK/all_results.jsonl"
+        echo ""
+        return 0
     fi
     echo ""
+    return 1
+}
+
+MAX_RETRIES=3
+run_test_with_retries() {
+    local attempt=1
+    while [ "$attempt" -le "$MAX_RETRIES" ]; do
+        if [ "$attempt" -gt 1 ]; then
+            echo "  Retry $attempt/$MAX_RETRIES for: $1"
+        fi
+        if run_test "$@"; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+    done
+    echo ""
+    echo "FATAL: Test '$1' failed after $MAX_RETRIES attempts — aborting entire suite."
+    echo "       Every worker must produce concurrent results."
+    exit 1
 }
 > "$WORK/all_results.jsonl"
 echo "Running tests (${DURATION}s each)..."
 echo ""
 # Solo baselines
-run_test "GPU alone"                  gpu
-run_test "SME alone (${SME_THREADS}t)"             sme
-run_test "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
-run_test "CBLAS SGEMM alone (${CBLAS_THREADS}t)"    cblas
-run_test "NEON alone (${NEON_THREADS}t)"            neon
+run_test_with_retries "GPU alone"                  gpu
+run_test_with_retries "SME alone (${SME_THREADS}t)"             sme
+run_test_with_retries "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
+run_test_with_retries "CBLAS SGEMM alone (${CBLAS_THREADS}t)"    cblas
+run_test_with_retries "NEON alone (${NEON_THREADS}t)"            neon
 # Pairs
-run_test "GPU + SME"                  gpu sme
-run_test "GPU + CBLAS"                gpu cblas
-run_test "GPU + BNNS"                 gpu bnns
-run_test "GPU + NEON"                 gpu neon
-run_test "SME + CBLAS"                sme cblas
-run_test "SME + BNNS"                 sme bnns
-run_test "SME + NEON"                 sme neon
-run_test "CBLAS + BNNS"               cblas bnns
-run_test "CBLAS + NEON"               cblas neon
-run_test "BNNS + NEON"                bnns neon
+run_test_with_retries "GPU + SME"                  gpu sme
+run_test_with_retries "GPU + CBLAS"                gpu cblas
+run_test_with_retries "GPU + BNNS"                 gpu bnns
+run_test_with_retries "GPU + NEON"                 gpu neon
+run_test_with_retries "SME + CBLAS"                sme cblas
+run_test_with_retries "SME + BNNS"                 sme bnns
+run_test_with_retries "SME + NEON"                 sme neon
+run_test_with_retries "CBLAS + BNNS"               cblas bnns
+run_test_with_retries "CBLAS + NEON"               cblas neon
+run_test_with_retries "BNNS + NEON"                bnns neon
 # Triples
-run_test "GPU + SME + CBLAS"          gpu sme cblas
-run_test "GPU + SME + NEON"           gpu sme neon
-run_test "GPU + CBLAS + NEON"         gpu cblas neon
-run_test "GPU + BNNS + NEON"          gpu bnns neon
-run_test "GPU + SME + BNNS"           gpu sme bnns
+run_test_with_retries "GPU + SME + CBLAS"          gpu sme cblas
+run_test_with_retries "GPU + SME + NEON"           gpu sme neon
+run_test_with_retries "GPU + CBLAS + NEON"         gpu cblas neon
+run_test_with_retries "GPU + BNNS + NEON"          gpu bnns neon
+run_test_with_retries "GPU + SME + BNNS"           gpu sme bnns
 # Everything
-run_test "GPU + SME + CBLAS + NEON"   gpu sme cblas neon
-run_test "GPU + SME + BNNS + NEON"    gpu sme bnns neon
-run_test "GPU + SME + CBLAS + BNNS + NEON" gpu sme cblas bnns neon
+run_test_with_retries "GPU + SME + CBLAS + NEON"   gpu sme cblas neon
+run_test_with_retries "GPU + SME + BNNS + NEON"    gpu sme bnns neon
+run_test_with_retries "GPU + SME + CBLAS + BNNS + NEON" gpu sme cblas bnns neon
 # Summary
 RESULTS_JSON=$(python3 -c "
 import json
 results = [json.loads(line) for line in open('$WORK/all_results.jsonl') if line.strip()]
 print(json.dumps(results))
-" 2>/dev/null)
-if [ -n "$RESULTS_JSON" ]; then
-    python3 analyze.py --summary "$RESULTS_JSON"
+") || { echo "FATAL: Failed to parse results JSON from $WORK/all_results.jsonl"; exit 1; }
+if [ -z "$RESULTS_JSON" ]; then
+    echo "FATAL: Summary generation produced no output — results file may be empty or corrupt"
+    exit 1
 fi
+python3 analyze.py --summary "$RESULTS_JSON"
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo " All tests complete."

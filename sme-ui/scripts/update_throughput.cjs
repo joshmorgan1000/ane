@@ -54,9 +54,14 @@ child.on('close', (code) => {
         if (columns.length === headers.length) {
           const rowData = {};
           for (let j = 0; j < headers.length; j++) {
+             if (columns[j] === '--') {
+               console.warn(`  ⚠ Missing data ('--') for column '${headers[j]}' in row '${columns[0]}' — converted to 0`);
+             }
              rowData[headers[j]] = columns[j] === '--' ? 0 : (isNaN(parseFloat(columns[j])) ? columns[j] : parseFloat(columns[j]));
           }
           results.push(rowData);
+        } else if (line.trim()) {
+          console.warn(`  ⚠ Skipped row with ${columns.length} columns (expected ${headers.length}): "${line}"`);
         }
       }
     }
@@ -71,10 +76,16 @@ child.on('close', (code) => {
       results
     };
     
+    if (results.length === 0) {
+      console.error('\n❌ Throughput tests produced no parseable results — summary table was empty or not found.');
+      process.exit(1);
+    }
+
     writeFileSync(join(dataDir, 'throughput_results.json'), JSON.stringify(finalData, null, 2));
     console.log('\n✅ Successfully updated throughput_results.json!');
 
   } catch (e) {
     console.error('\n❌ Failed to run throughput tests or parse output:', e);
+    process.exit(1);
   }
 });

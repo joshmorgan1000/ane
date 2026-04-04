@@ -19,7 +19,7 @@ A reference list of all A64 SME instructions is available at [`probes/sme_instru
 
 ## Throughput Benchmark
 
-[`tests/run_full_throughput_tests.sh`](../tests/run_full_throughput_tests.sh) measures concurrent throughput across four independent compute paths to prove that SME and BNNS contend for the same hardware. See [docs/DISCOVERY.md](DISCOVERY.md) for the full results and analysis.
+[`tests/run_full_throughput_tests.sh`](../tests/run_full_throughput_tests.sh) measures concurrent throughput across five independent compute paths to prove that SME and BNNS contend for the same hardware. See [docs/DISCOVERY.md](DISCOVERY.md) for the full results and analysis.
 
 **Usage:**
 
@@ -33,6 +33,7 @@ The script is fully self-contained — it generates all source code (C, Metal, A
 - **GPU** (Metal): `char4` INT8 multiply-accumulate
 - **SME** (N threads): ARM SMOPA int8 outer product on ZA tiles
 - **BNNS** (N threads): Apple Accelerate INT8 fully-connected
+- **CBLAS** (N threads): Apple Accelerate SGEMM FP32
 - **NEON** (N threads): ARM NEON FP32 fused multiply-add
 
 Thread counts are auto-detected from your hardware topology.
