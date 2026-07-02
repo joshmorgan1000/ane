@@ -4,7 +4,7 @@ const { join } = require('path');
 
 const scriptPath = join(__dirname, '../../tests/run_full_throughput_tests.sh');
 
-console.log('Running hardware throughput tests... (this will take about 2-3 minutes)');
+console.log('Running hardware throughput tests... (this will take about 15-20 minutes with cooldowns)');
 
 const child = spawn('bash', [scriptPath]);
 let output = '';
@@ -54,10 +54,8 @@ child.on('close', (code) => {
         if (columns.length === headers.length) {
           const rowData = {};
           for (let j = 0; j < headers.length; j++) {
-             if (columns[j] === '--') {
-               console.warn(`  ⚠ Missing data ('--') for column '${headers[j]}' in row '${columns[0]}' — converted to 0`);
-             }
-             rowData[headers[j]] = columns[j] === '--' ? 0 : (isNaN(parseFloat(columns[j])) ? columns[j] : parseFloat(columns[j]));
+             const value = columns[j];
+             rowData[headers[j]] = value === '--' ? 0 : (isNaN(parseFloat(value)) ? value : parseFloat(value));
           }
           results.push(rowData);
         } else if (line.trim()) {

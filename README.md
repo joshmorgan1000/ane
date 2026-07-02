@@ -121,8 +121,8 @@ See [docs/TOOLS.md](docs/TOOLS.md) for details on the probe scripts, throughput 
 - Apple M4 or M5 (or any ARM processor with SME2)
 - CMake 3.19+
 - C++20 compiler (Apple Clang recommended)
-- Node.js 20+ and npm (optional, for the dashboard)
-- Python 3.10+ with `torch` and `torchvision` (optional, for PyTorch comparisons)
+- Node.js 20.19+ or 22.12+ and npm (required for the dashboard)
+- Python 3.10+ (the dashboard script creates `.dashboard-venv/` and installs `torch`/`torchvision`)
 
 ---
 
@@ -139,6 +139,7 @@ See [docs/TOOLS.md](docs/TOOLS.md) for details on the probe scripts, throughput 
 ## Contributors
 
 Thanks to Anthropic's Claude models (Haiku, Sonnet, and Opus 4.5 and 4.6 were all used at some point).
+Thanks to GPT-5.5 for filling in where Claude couldn't.
 Thanks to Gemini 3.1 Pro for assembling the React dashboards, benchmark integration, and keeping things clean!
 
 ## License

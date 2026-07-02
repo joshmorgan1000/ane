@@ -10,12 +10,15 @@ To ensure the visualizations reflect the actual hardware capabilities of your Ap
 npm run fetch-data
 ```
 
-This command acts as a pipeline that runs two scripts:
+The top-level `./dashboard.sh` wrapper creates and activates `.dashboard-venv/` automatically before running this pipeline. If you run `npm run fetch-data` directly, make sure `python3` resolves to an environment with `torch` and `torchvision` installed.
 
-1. **`update_probe.cjs`**: Executes the shell script `../probes/probe_instructions.sh`. This script compiles C payloads using Apple `clang` and uses `objdump` to test which SME instructions are valid (returning `OK`) and which fail (returning `SIGILL`). The result is parsed and saved directly to `src/data/probe_results.json`.
-2. **`update_throughput.cjs`**: Executes `../tests/run_full_throughput_tests.sh`. This runs intensive benchmark tests across different compute units (GPU, BNNS, NEON, SME) and calculates the throughput in TOPS (Tera Operations Per Second). The summary output is parsed and saved to `src/data/throughput_results.json`.
+This command acts as a pipeline that runs three scripts:
 
-*Note: Running throughput tests takes about 2-3 minutes.*
+1. **`update_mnist.cjs`**: Runs the SME MNIST benchmark and the PyTorch comparison, then writes `src/data/mnist_results.json`.
+2. **`update_probe.cjs`**: Executes the shell script `../probes/probe_instructions.sh`. This script compiles C payloads using Apple `clang` and uses `objdump` to test which SME instructions are valid (returning `OK`) and which fail (returning `SIGILL`). The result is parsed and saved directly to `src/data/probe_results.json`.
+3. **`update_throughput.cjs`**: Executes `../tests/run_full_throughput_tests.sh`. This runs intensive benchmark tests across different compute units (GPU, BNNS, NEON, SME) and calculates the throughput in TOPS (Tera Operations Per Second). The summary output is parsed and saved to `src/data/throughput_results.json`.
+
+*Note: Running throughput tests takes about 15-20 minutes with the default cooldown between scenarios.*
 
 ## Building the Dashboard
 

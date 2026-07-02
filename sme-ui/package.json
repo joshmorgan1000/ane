@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "fetch-data": "node scripts/update_probe.cjs && node scripts/update_throughput.cjs && node scripts/update_mnist.cjs"
+    "fetch-mnist": "node scripts/update_mnist.cjs",
+    "fetch-probe": "node scripts/update_probe.cjs",
+    "fetch-throughput": "node scripts/update_throughput.cjs",
+    "fetch-data": "npm run fetch-mnist && npm run fetch-probe && npm run fetch-throughput"
   },
   "dependencies": {
     "clsx": "^2.1.1",

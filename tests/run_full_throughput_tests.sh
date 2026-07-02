@@ -26,6 +26,11 @@ WORK=$(mktemp -d /tmp/ane_test.XXXXXX)
 trap "rm -rf $WORK" EXIT
 cd "$WORK"
 DURATION=300
+TEST_COOLDOWN_SECONDS="${ANE_THROUGHPUT_COOLDOWN_SECONDS:-30}"
+if [[ ! "$TEST_COOLDOWN_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "WARNING: ANE_THROUGHPUT_COOLDOWN_SECONDS must be a non-negative integer. Using 30."
+    TEST_COOLDOWN_SECONDS=30
+fi
 # ── Auto-detect core topology ────────────────────────────────────────────────
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null) || {
     echo "WARNING: Could not detect CPU brand string via sysctl"
@@ -61,6 +66,7 @@ echo "   Each worker runs ${DURATION}s, logging timestamped heartbeats."
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "   Cores: ${PCORES} P-cores + ${ECORES} E-cores = ${TOTAL_CORES} total"
 echo "   SME threads: ${SME_THREADS}  BNNS threads: ${BNNS_THREADS}  CBLAS threads: ${CBLAS_THREADS}  NEON threads: ${NEON_THREADS}"
+echo "   Cooldown between tests: ${TEST_COOLDOWN_SECONDS}s"
 echo "═══════════════════════════════════════════════════════════════════════"
 echo ""
 # =============================================================================
@@ -742,35 +748,49 @@ run_test_with_retries() {
     echo "       Every worker must produce concurrent results."
     exit 1
 }
+cooldown_between_tests() {
+    local next_label="$1"
+    if [ "$TEST_COOLDOWN_SECONDS" -le 0 ]; then
+        return 0
+    fi
+    echo "Cooling down for ${TEST_COOLDOWN_SECONDS}s before: ${next_label}"
+    sleep "$TEST_COOLDOWN_SECONDS"
+}
+run_test_then_cooldown() {
+    local next_label="$1"
+    shift
+    run_test_with_retries "$@"
+    cooldown_between_tests "$next_label"
+}
 > "$WORK/all_results.jsonl"
 echo "Running tests (${DURATION}s each)..."
 echo ""
 # Solo baselines
-run_test_with_retries "GPU alone"                  gpu
-run_test_with_retries "SME alone (${SME_THREADS}t)"             sme
-run_test_with_retries "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
-run_test_with_retries "CBLAS SGEMM alone (${CBLAS_THREADS}t)"    cblas
-run_test_with_retries "NEON alone (${NEON_THREADS}t)"            neon
+run_test_then_cooldown "SME alone (${SME_THREADS}t)"             "GPU alone"                  gpu
+run_test_then_cooldown "BNNS INT8 alone (${BNNS_THREADS}t)"      "SME alone (${SME_THREADS}t)"             sme
+run_test_then_cooldown "CBLAS SGEMM alone (${CBLAS_THREADS}t)"   "BNNS INT8 alone (${BNNS_THREADS}t)"       bnns
+run_test_then_cooldown "NEON alone (${NEON_THREADS}t)"           "CBLAS SGEMM alone (${CBLAS_THREADS}t)"    cblas
+run_test_then_cooldown "GPU + SME"                               "NEON alone (${NEON_THREADS}t)"            neon
 # Pairs
-run_test_with_retries "GPU + SME"                  gpu sme
-run_test_with_retries "GPU + CBLAS"                gpu cblas
-run_test_with_retries "GPU + BNNS"                 gpu bnns
-run_test_with_retries "GPU + NEON"                 gpu neon
-run_test_with_retries "SME + CBLAS"                sme cblas
-run_test_with_retries "SME + BNNS"                 sme bnns
-run_test_with_retries "SME + NEON"                 sme neon
-run_test_with_retries "CBLAS + BNNS"               cblas bnns
-run_test_with_retries "CBLAS + NEON"               cblas neon
-run_test_with_retries "BNNS + NEON"                bnns neon
+run_test_then_cooldown "GPU + CBLAS"                             "GPU + SME"                  gpu sme
+run_test_then_cooldown "GPU + BNNS"                              "GPU + CBLAS"                gpu cblas
+run_test_then_cooldown "GPU + NEON"                              "GPU + BNNS"                 gpu bnns
+run_test_then_cooldown "SME + CBLAS"                             "GPU + NEON"                 gpu neon
+run_test_then_cooldown "SME + BNNS"                              "SME + CBLAS"                sme cblas
+run_test_then_cooldown "SME + NEON"                              "SME + BNNS"                 sme bnns
+run_test_then_cooldown "CBLAS + BNNS"                            "SME + NEON"                 sme neon
+run_test_then_cooldown "CBLAS + NEON"                            "CBLAS + BNNS"               cblas bnns
+run_test_then_cooldown "BNNS + NEON"                             "CBLAS + NEON"               cblas neon
+run_test_then_cooldown "GPU + SME + CBLAS"                       "BNNS + NEON"                bnns neon
 # Triples
-run_test_with_retries "GPU + SME + CBLAS"          gpu sme cblas
-run_test_with_retries "GPU + SME + NEON"           gpu sme neon
-run_test_with_retries "GPU + CBLAS + NEON"         gpu cblas neon
-run_test_with_retries "GPU + BNNS + NEON"          gpu bnns neon
-run_test_with_retries "GPU + SME + BNNS"           gpu sme bnns
+run_test_then_cooldown "GPU + SME + NEON"                        "GPU + SME + CBLAS"          gpu sme cblas
+run_test_then_cooldown "GPU + CBLAS + NEON"                      "GPU + SME + NEON"           gpu sme neon
+run_test_then_cooldown "GPU + BNNS + NEON"                       "GPU + CBLAS + NEON"         gpu cblas neon
+run_test_then_cooldown "GPU + SME + BNNS"                        "GPU + BNNS + NEON"          gpu bnns neon
+run_test_then_cooldown "GPU + SME + CBLAS + NEON"                "GPU + SME + BNNS"           gpu sme bnns
 # Everything
-run_test_with_retries "GPU + SME + CBLAS + NEON"   gpu sme cblas neon
-run_test_with_retries "GPU + SME + BNNS + NEON"    gpu sme bnns neon
+run_test_then_cooldown "GPU + SME + BNNS + NEON"                 "GPU + SME + CBLAS + NEON"   gpu sme cblas neon
+run_test_then_cooldown "GPU + SME + CBLAS + BNNS + NEON"         "GPU + SME + BNNS + NEON"    gpu sme bnns neon
 run_test_with_retries "GPU + SME + CBLAS + BNNS + NEON" gpu sme cblas bnns neon
 # Summary
 RESULTS_JSON=$(python3 -c "

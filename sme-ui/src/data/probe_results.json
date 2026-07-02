@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-25T14:18:22.408Z",
+  "timestamp": "2026-07-02T12:16:52.604Z",
   "sysInfo": {
-    "brand_string": "Apple M5 Max",
-    "chip": "M5",
+    "brand_string": "Apple M4 Max",
+    "chip": "M4",
     "FEAT_SME": "1",
     "FEAT_SME2": "1",
     "FEAT_SVE": "n/a",
@@ -203,6 +203,13 @@
           "error": ""
         },
         {
+          "instruction": "addqv      v0.4s, p0, z1.s",
+          "description": "add reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "addspl     x0, x0, #1",
           "description": "Add multiple of streaming PL",
           "status": "ok",
@@ -271,6 +278,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "andqv      v0.16b, p0, z1.b",
+          "description": "AND reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "ands       p0.b, p0/z, p0.b, p0.b",
@@ -387,30 +401,30 @@
         {
           "instruction": "bfadd      za.h[w8,0,VGx2], {z0.h-z1.h}",
           "description": "2v bfadd to ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfadd      za.h[w8,0,VGx4], {z0.h-z3.h}",
           "description": "4v bfadd to ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfclamp    {z0.h-z1.h}, z2.h, z3.h",
           "description": "2v bfclamp",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfclamp    {z0.h-z3.h}, z2.h, z3.h",
           "description": "4v bfclamp",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfcvt      z0.h, p0/m, z1.s",
@@ -506,156 +520,156 @@
         {
           "instruction": "bfmax      {z0.h-z1.h}, {z0.h-z1.h}, z2.h",
           "description": "2v bfmax single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmax      {z0.h-z3.h}, {z0.h-z3.h}, z4.h",
           "description": "4v bfmax single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmax      {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfmax",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmax      {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfmax",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmaxnm    {z0.h-z1.h}, {z0.h-z1.h}, z2.h",
           "description": "2v bfmaxnm single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmaxnm    {z0.h-z3.h}, {z0.h-z3.h}, z4.h",
           "description": "4v bfmaxnm single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmaxnm    {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfmaxnm",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmaxnm    {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfmaxnm",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmin      {z0.h-z1.h}, {z0.h-z1.h}, z2.h",
           "description": "2v bfmin single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmin      {z0.h-z3.h}, {z0.h-z3.h}, z4.h",
           "description": "4v bfmin single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmin      {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfmin",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmin      {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfmin",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfminnm    {z0.h-z1.h}, {z0.h-z1.h}, z2.h",
           "description": "2v bfminnm single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfminnm    {z0.h-z3.h}, {z0.h-z3.h}, z4.h",
           "description": "4v bfminnm single",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfminnm    {z0.h-z1.h}, {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfminnm",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfminnm    {z0.h-z3.h}, {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfminnm",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h",
           "description": "2vx1 bfmla ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h",
           "description": "4vx1 bfmla ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfmla ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfmla ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0]",
           "description": "2v bfmla idx",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmla      za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0]",
           "description": "4v bfmla idx",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmlal     za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h",
@@ -716,44 +730,44 @@
         {
           "instruction": "bfmls      za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h",
           "description": "2vx1 bfmls ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmls      za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h",
           "description": "4vx1 bfmls ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmls      za.h[w8,0,VGx2], {z0.h-z1.h}, {z2.h-z3.h}",
           "description": "2v bfmls ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmls      za.h[w8,0,VGx4], {z0.h-z3.h}, {z4.h-z7.h}",
           "description": "4v bfmls ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmls      za.h[w8,0,VGx2], {z0.h-z1.h}, z2.h[0]",
           "description": "2v bfmls idx",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmls      za.h[w8,0,VGx4], {z0.h-z3.h}, z4.h[0]",
           "description": "4v bfmls idx",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmlsl     za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h",
@@ -798,11 +812,53 @@
           "error": ""
         },
         {
+          "instruction": "bfmlslb    z0.s, z1.h, z2.h",
+          "description": "BF16 mul-sub long bot",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "bfmlslb    z0.s, z1.h, z2.h[0]",
+          "description": "BF16 mul-sub long bot idx",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "bfmlslt    z0.s, z1.h, z2.h",
+          "description": "BF16 mul-sub long top",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "bfmlslt    z0.s, z1.h, z2.h[0]",
+          "description": "BF16 mul-sub long top idx",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
           "instruction": "bfmmla     z0.s, z1.h, z2.h",
           "description": "BF16 matmul",
           "status": "sigill",
           "mode": "SME",
           "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "bfmop4a    za0.s, z0.h, z4.h",
+          "description": "MOP4 BF16 qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: bfmopa, bmopa, fmopa?"
+        },
+        {
+          "instruction": "bfmop4s    za0.s, z0.h, z4.h",
+          "description": "MOP4 BF16 qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: bfmops, bmops, fmops?"
         },
         {
           "instruction": "bfmopa     za0.s, p0/m, p0/m, z0.h, z1.h",
@@ -814,9 +870,9 @@
         {
           "instruction": "bfmopa     za0.h, p0/m, p0/m, z0.h, z1.h",
           "description": "BF16 non-wid mopa",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfmops     za0.s, p0/m, p0/m, z0.h, z1.h",
@@ -828,23 +884,30 @@
         {
           "instruction": "bfmops     za0.h, p0/m, p0/m, z0.h, z1.h",
           "description": "BF16 non-wid mops",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfsub      za.h[w8,0,VGx2], {z0.h-z1.h}",
           "description": "2v bfsub from ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "bfsub      za.h[w8,0,VGx4], {z0.h-z3.h}",
           "description": "4v bfsub from ZA",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "bftmopa    za0.s, {z0.h-z1.h}, z2.h, z3[0]",
+          "description": "TMOP BF16 sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
         },
         {
           "instruction": "bfvdot     za.s[w8,0], {z0.h-z1.h}, z2.h[0]",
@@ -1071,6 +1134,20 @@
           "error": ""
         },
         {
+          "instruction": "cntp       x0, pn8.s, vlx2",
+          "description": "count PN elems x2",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "cntp       x0, pn8.s, vlx4",
+          "description": "count PN elems x4",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
           "instruction": "cntw       x0",
           "description": "count words",
           "status": "ok",
@@ -1176,6 +1253,13 @@
           "error": ""
         },
         {
+          "instruction": "dupq       z0.s, z1.s[0]",
+          "description": "dup per 128b seg",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "eor        z0.d, z1.d, z2.d",
           "description": "XOR",
           "status": "ok",
@@ -1204,6 +1288,13 @@
           "error": ""
         },
         {
+          "instruction": "eorqv      v0.16b, p0, z1.b",
+          "description": "XOR reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "eors       p0.b, p0/z, p0.b, p0.b",
           "description": "Pred XOR, setting flags",
           "status": "ok",
@@ -1230,6 +1321,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "extq       z0.b, z0.b, z1.b, #0",
+          "description": "extract per 128b seg",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "f1cvt      {z0.h-z1.h}, z2.b",
@@ -1335,6 +1433,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "faddqv     v0.4s, p0, z1.s",
+          "description": "fadd reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "faddv      s0, p0, z1.s",
@@ -1514,9 +1619,9 @@
         {
           "instruction": "fcvt       {z0.s-z1.s}, z2.h",
           "description": "FP16->FP32 wid 2v",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "fcvt       z0.b, {z0.s-z3.s}",
@@ -1528,9 +1633,9 @@
         {
           "instruction": "fcvtl      {z0.s-z1.s}, z2.h",
           "description": "FP16->FP32 deintrl",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "fcvtn      z0.h, {z0.s-z1.s}",
@@ -1792,6 +1897,13 @@
           "error": ""
         },
         {
+          "instruction": "fmaxnmqv   v0.4s, p0, z1.s",
+          "description": "fmaxnm reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "fmaxnmv    s0, p0, z1.s",
           "description": "FP max number reduction",
           "status": "ok",
@@ -1804,6 +1916,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "fmaxqv     v0.4s, p0, z1.s",
+          "description": "fmax reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "fmaxv      s0, p0, z1.s",
@@ -1897,6 +2016,13 @@
           "error": ""
         },
         {
+          "instruction": "fminnmqv   v0.4s, p0, z1.s",
+          "description": "fminnm reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "fminnmv    s0, p0, z1.s",
           "description": "FP min number reduction",
           "status": "ok",
@@ -1909,6 +2035,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "fminqv     v0.4s, p0, z1.s",
+          "description": "fmin reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "fminv      s0, p0, z1.s",
@@ -2282,6 +2415,27 @@
           "error": "FAIL (expected, exit=132)"
         },
         {
+          "instruction": "fmop4a     za0.s, z0.s, z4.s",
+          "description": "MOP4 FP32 qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: bfmopa, fmopa?"
+        },
+        {
+          "instruction": "fmop4a     za0.s, z0.b, z4.b",
+          "description": "MOP4 FP8 qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: bfmopa, fmopa?"
+        },
+        {
+          "instruction": "fmop4s     za0.s, z0.s, z4.s",
+          "description": "MOP4 FP32 qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: bfmops, fmops?"
+        },
+        {
           "instruction": "fmopa      za0.s, p0/m, p0/m, z0.s, z1.s",
           "description": "FP32 outer",
           "status": "ok",
@@ -2632,6 +2786,13 @@
           "error": "FAIL (expected, exit=132)"
         },
         {
+          "instruction": "ftmopa     za0.s, {z0.s-z1.s}, z2.s, z3[0]",
+          "description": "TMOP FP32 sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
+        },
+        {
           "instruction": "ftsmul     z0.s, z1.s, z2.s",
           "description": "FP trig select coefficient",
           "status": "sigill",
@@ -2856,6 +3017,13 @@
           "error": ""
         },
         {
+          "instruction": "ld1q       {z0.q}, p0/z, [z1.d, x0]",
+          "description": "gather ld 128b",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| instruction requires: sve2p1"
+        },
+        {
           "instruction": "ld1rb      z0.s, p0/z, [x0]",
           "description": "Load+broadcast byte",
           "status": "ok",
@@ -2989,6 +3157,13 @@
           "error": ""
         },
         {
+          "instruction": "ld2q       {z0.q-z1.q}, p0/z, [x0]",
+          "description": "ld2 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "ld2w       {z0.s, z1.s}, p0/z, [x0]",
           "description": "Load 2-struct words",
           "status": "ok",
@@ -3017,6 +3192,13 @@
           "error": ""
         },
         {
+          "instruction": "ld3q       {z0.q-z2.q}, p0/z, [x0]",
+          "description": "ld3 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "ld3w       {z0.s, z1.s, z2.s}, p0/z, [x0]",
           "description": "Load 3-struct words",
           "status": "ok",
@@ -3043,6 +3225,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "ld4q       {z0.q-z3.q}, p0/z, [x0]",
+          "description": "ld4 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "ld4w       {z0.s, z1.s, z2.s, z3.s}, p0/z, [x0]",
@@ -3112,6 +3301,13 @@
           "description": "ldnt1w strided 2",
           "status": "ok",
           "mode": "OFF",
+          "error": ""
+        },
+        {
+          "instruction": "ldr        pn8, [x0]",
+          "description": "load pred-as-counter",
+          "status": "unknown",
+          "mode": "SME",
           "error": ""
         },
         {
@@ -3290,6 +3486,20 @@
           "error": ""
         },
         {
+          "instruction": "luti4      {z0.b-z1.b}, zt0, z2[0], #0",
+          "description": "LUTv2 luti4 8b seg",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| invalid operand for instruction"
+        },
+        {
+          "instruction": "luti4      {z0.h-z1.h}, zt0, z2[0], #0",
+          "description": "LUTv2 luti4 16b seg",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| invalid operand for instruction"
+        },
+        {
           "instruction": "mad        z0.s, p0/m, z1.s, z2.s",
           "description": "MAD",
           "status": "ok",
@@ -3362,9 +3572,9 @@
         {
           "instruction": "zero       za.d[w8,0:1]",
           "description": "double-vec zero pair",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (exit=132)"
         },
         {
           "instruction": "ld1b       za0h.b[w12,0], p0/z, [x0]",
@@ -3516,37 +3726,37 @@
         {
           "instruction": "movaz      z0.s, za0h.s[w12,0]",
           "description": "move+zero",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "movaz      {z0.s-z1.s}, za0h.s[w12,0:1]",
           "description": "2v movaz arr->vec",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "movaz      {z0.s-z3.s}, za0h.s[w12,0:3]",
           "description": "4v movaz arr->vec",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "movaz      {z0.s-z1.s}, za0h.s[w12,0:1]",
           "description": "2v movaz tile->vec",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "movaz      {z0.s-z3.s}, za0h.s[w12,0:3]",
           "description": "4v movaz tile->vec",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "add        z0.s, p0/m, z0.s, z1.s",
@@ -3682,6 +3892,13 @@
           "error": ""
         },
         {
+          "instruction": "orqv       v0.16b, p0, z1.b",
+          "description": "OR reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "orr        z0.d, z1.d, z2.d",
           "description": "OR",
           "status": "ok",
@@ -3703,6 +3920,20 @@
           "error": ""
         },
         {
+          "instruction": "pext       p0.s, pn8[0]",
+          "description": "extract pred from counter",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "pext       {p0.s, p1.s}, pn8[0]",
+          "description": "extract pred pair from counter",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
           "instruction": "pfalse     p0.b",
           "description": "Set predicate to all-false",
           "status": "ok",
@@ -3715,6 +3946,20 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "pmov       p0.s, z0",
+          "description": "pred from vector",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "pmov       z0, p0.s",
+          "description": "vector from pred",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "pmul       z0.b, z1.b, z2.b",
@@ -3741,6 +3986,13 @@
           "instruction": "pnext      p0.s, p0, p0.s",
           "description": "Find next active element",
           "status": "ok",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "psel       p0, p1, p2.s[w12,0]",
+          "description": "predicate select",
+          "status": "unknown",
           "mode": "SME",
           "error": ""
         },
@@ -3776,6 +4028,13 @@
           "instruction": "ptrue      p0.d",
           "description": "all-true .d",
           "status": "ok",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "ptrue      pn8.s",
+          "description": "pred-as-counter all-true",
+          "status": "unknown",
           "mode": "SME",
           "error": ""
         },
@@ -4277,6 +4536,13 @@
           "error": ""
         },
         {
+          "instruction": "smaxqv     v0.4s, p0, z1.s",
+          "description": "smax reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "smaxv      b0, p0, z1.b",
           "description": "INT8 max",
           "status": "ok",
@@ -4310,6 +4576,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "sminqv     v0.4s, p0, z1.s",
+          "description": "smin reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "sminv      b0, p0, z1.b",
@@ -4520,6 +4793,20 @@
           "status": "sigill",
           "mode": "SME",
           "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "smop4a     za0.s, z0.b, z4.b",
+          "description": "MOP4 S8 qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smopa, sumopa, usmopa?"
+        },
+        {
+          "instruction": "smop4s     za0.s, z0.b, z4.b",
+          "description": "MOP4 S8 qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smops, sumops, usmops?"
         },
         {
           "instruction": "smopa      za0.s, p0/m, p0/m, z0.b, z1.b",
@@ -5229,6 +5516,13 @@
           "error": ""
         },
         {
+          "instruction": "st1q       {z0.q}, p0, [z1.d, x0]",
+          "description": "scatter st 128b",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| instruction requires: sve2p1"
+        },
+        {
           "instruction": "st1w       {z0.s}, p0, [x0]",
           "description": "FP32 store",
           "status": "ok",
@@ -5278,6 +5572,13 @@
           "error": ""
         },
         {
+          "instruction": "st2q       {z0.q-z1.q}, p0, [x0]",
+          "description": "st2 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "st2w       {z0.s, z1.s}, p0, [x0]",
           "description": "Store 2-struct words",
           "status": "ok",
@@ -5304,6 +5605,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "st3q       {z0.q-z2.q}, p0, [x0]",
+          "description": "st3 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "st3w       {z0.s, z1.s, z2.s}, p0, [x0]",
@@ -5334,11 +5642,25 @@
           "error": ""
         },
         {
+          "instruction": "st4q       {z0.q-z3.q}, p0, [x0]",
+          "description": "st4 128b elem",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "st4w       {z0.s, z1.s, z2.s, z3.s}, p0, [x0]",
           "description": "Store 4-struct words",
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "stmopa     za0.s, {z0.b-z1.b}, z2.b, z3[0]",
+          "description": "TMOP S8 sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
         },
         {
           "instruction": "stnt1b     {z0.b}, p0, [x0]",
@@ -5394,6 +5716,13 @@
           "description": "stnt1w strided 2",
           "status": "ok",
           "mode": "OFF",
+          "error": ""
+        },
+        {
+          "instruction": "str        pn8, [x0]",
+          "description": "store pred-as-counter",
+          "status": "unknown",
+          "mode": "SME",
           "error": ""
         },
         {
@@ -5558,6 +5887,20 @@
           "error": ""
         },
         {
+          "instruction": "sumop4a    za0.s, z0.b, z4.b",
+          "description": "MOP4 S*U qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smopa, sumopa, umopa?"
+        },
+        {
+          "instruction": "sumop4s    za0.s, z0.b, z4.b",
+          "description": "MOP4 S*U qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smops, sumops, umops?"
+        },
+        {
           "instruction": "sumopa     za0.s, p0/m, p0/m, z0.b, z1.b",
           "description": "s*u outer",
           "status": "ok",
@@ -5628,6 +5971,13 @@
           "error": ""
         },
         {
+          "instruction": "sutmopa    za0.s, {z0.b-z1.b}, z2.b, z3[0]",
+          "description": "TMOP S*U sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
+        },
+        {
           "instruction": "suvdot     za.s[w8,0], {z0.b-z3.b}, z4.b[0]",
           "description": "Signedxunsigned vdot",
           "status": "ok",
@@ -5686,9 +6036,9 @@
         {
           "instruction": "tblq       z0.b, {z1.b}, z2.b",
           "description": "per-128 lookup",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "tbx        z0.b, z1.b, z2.b",
@@ -5700,9 +6050,9 @@
         {
           "instruction": "tbxq       z0.b, z1.b, z2.b",
           "description": "per-128 merge",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "trn1       z0.b, z1.b, z2.b",
@@ -5992,6 +6342,13 @@
           "error": ""
         },
         {
+          "instruction": "umaxqv     v0.4s, p0, z1.s",
+          "description": "umax reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "umaxv      b0, p0, z1.b",
           "description": "UINT8 max",
           "status": "ok",
@@ -6025,6 +6382,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "uminqv     v0.4s, p0, z1.s",
+          "description": "umin reduce 128b",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "uminv      b0, p0, z1.b",
@@ -6235,6 +6599,20 @@
           "status": "sigill",
           "mode": "SME",
           "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "umop4a     za0.s, z0.b, z4.b",
+          "description": "MOP4 U8 qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: sumopa, umopa, usmopa?"
+        },
+        {
+          "instruction": "umop4s     za0.s, z0.b, z4.b",
+          "description": "MOP4 U8 qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: sumops, umops, usmops?"
         },
         {
           "instruction": "umopa      za0.s, p0/m, p0/m, z0.b, z1.b",
@@ -6685,6 +7063,20 @@
           "error": "FAIL (expected, exit=132)"
         },
         {
+          "instruction": "usmop4a    za0.s, z0.b, z4.b",
+          "description": "MOP4 U*S qtr-tile acc",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smopa, umopa, usmopa?"
+        },
+        {
+          "instruction": "usmop4s    za0.s, z0.b, z4.b",
+          "description": "MOP4 U*S qtr-tile sub",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| unrecognized instruction mnemonic, did you mean: smops, umops, usmops?"
+        },
+        {
           "instruction": "usmopa     za0.s, p0/m, p0/m, z0.b, z1.b",
           "description": "u*s outer",
           "status": "ok",
@@ -6718,6 +7110,13 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "ustmopa    za0.s, {z0.b-z1.b}, z2.b, z3[0]",
+          "description": "TMOP U*S sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
         },
         {
           "instruction": "usublb     z0.s, z1.h, z2.h",
@@ -6797,6 +7196,13 @@
           "error": ""
         },
         {
+          "instruction": "utmopa     za0.s, {z0.b-z1.b}, z2.b, z3[0]",
+          "description": "TMOP U8 sparse",
+          "status": "compile_fail",
+          "mode": "SME",
+          "error": "COMPILE_FAIL| vector register expected"
+        },
+        {
           "instruction": "uvdot      za.s[w8,0], {z0.b-z3.b}, z4.b[0]",
           "description": "Unsigned vertical dot",
           "status": "ok",
@@ -6874,6 +7280,20 @@
           "error": ""
         },
         {
+          "instruction": "uzpq1      z0.s, z1.s, z2.s",
+          "description": "unzip per 128b lo",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "uzpq2      z0.s, z1.s, z2.s",
+          "description": "unzip per 128b hi",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
           "instruction": "whilege    p0.s, x0, x1",
           "description": "while >=",
           "status": "ok",
@@ -6881,9 +7301,23 @@
           "error": ""
         },
         {
+          "instruction": "whilege    pn8.s, x0, x1, vlx2",
+          "description": "while GE pred pair",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
           "instruction": "whilegt    p0.s, x0, x1",
           "description": "while >",
           "status": "ok",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "whilegt    pn8.s, x0, x1, vlx2",
+          "description": "while GT pred pair",
+          "status": "unknown",
           "mode": "SME",
           "error": ""
         },
@@ -6909,6 +7343,13 @@
           "error": ""
         },
         {
+          "instruction": "whilele    pn8.s, x0, x1, vlx2",
+          "description": "while LE pred pair",
+          "status": "unknown",
+          "mode": "SME",
+          "error": ""
+        },
+        {
           "instruction": "whilelo    p0.s, x0, x1",
           "description": "Pred while lower, unsigned",
           "status": "ok",
@@ -6926,6 +7367,13 @@
           "instruction": "whilelt    p0.s, xzr, x0",
           "description": "while lt",
           "status": "ok",
+          "mode": "SME",
+          "error": ""
+        },
+        {
+          "instruction": "whilelt    pn8.s, x0, x1, vlx2",
+          "description": "while LT pred pair",
+          "status": "unknown",
           "mode": "SME",
           "error": ""
         },
@@ -6967,16 +7415,16 @@
         {
           "instruction": "zero       za.d[w8,0:1]",
           "description": "double-vec zero",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "zero       za.d[w8,0:3]",
           "description": "quad-vec zero",
-          "status": "ok",
+          "status": "sigill",
           "mode": "SME",
-          "error": ""
+          "error": "FAIL (expected, exit=132)"
         },
         {
           "instruction": "zero       {zt0}",
@@ -7026,6 +7474,20 @@
           "status": "ok",
           "mode": "SME",
           "error": ""
+        },
+        {
+          "instruction": "zipq1      z0.s, z1.s, z2.s",
+          "description": "zip per 128b lo",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
+        },
+        {
+          "instruction": "zipq2      z0.s, z1.s, z2.s",
+          "description": "zip per 128b hi",
+          "status": "sigill",
+          "mode": "SME",
+          "error": "FAIL (expected, exit=132)"
         }
       ]
     },
@@ -7034,45 +7496,45 @@
       "items": [
         {
           "label": "FADD z.s (FP32 vector add)",
-          "value": 1.04,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.958 s"
+          "timeInfo": " 1.052 s"
         },
         {
           "label": "FMUL z.s (FP32 vector mul)",
-          "value": 1.05,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.956 s"
+          "timeInfo": " 1.053 s"
         },
         {
           "label": "FMLA z.s (FP32 fused mul-add)",
-          "value": 0.52,
+          "value": 0.47,
           "unit": "Gops/s",
-          "timeInfo": " 1.905 s"
+          "timeInfo": " 2.108 s"
         },
         {
           "label": "ADD z.b (INT8 vector add)",
-          "value": 4.05,
+          "value": 3.81,
           "unit": "Gops/s",
-          "timeInfo": " 0.247 s"
+          "timeInfo": " 0.262 s"
         },
         {
           "label": "MUL z.s (INT32 vector mul)",
-          "value": 1.04,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.959 s"
+          "timeInfo": " 1.058 s"
         },
         {
           "label": "SDOT z.s (INT8 dot product)",
-          "value": 0.53,
+          "value": 0.47,
           "unit": "Gops/s",
-          "timeInfo": " 1.897 s"
+          "timeInfo": " 2.109 s"
         },
         {
           "label": "FDOT z.s (FP16 2-way dot)",
-          "value": 0.26,
+          "value": 0.24,
           "unit": "Gops/s",
-          "timeInfo": " 3.802 s"
+          "timeInfo": " 4.230 s"
         }
       ]
     },
@@ -7081,45 +7543,45 @@
       "items": [
         {
           "label": "FMOPA za0.s (FP32 outer product)",
-          "value": 1.04,
+          "value": 0.93,
           "unit": "Gops/s",
-          "timeInfo": " 0.962 s"
+          "timeInfo": " 1.070 s"
         },
         {
           "label": "SMOPA za0.s (INT8 outer product)",
-          "value": 1.04,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.958 s"
+          "timeInfo": " 1.058 s"
         },
         {
           "label": "SMLALL 1v (INT8 long-long)",
-          "value": 1.03,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.968 s"
+          "timeInfo": " 1.054 s"
         },
         {
           "label": "SMLALL VGx2 (INT8 long-long 2v)",
-          "value": 1.04,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.958 s"
+          "timeInfo": " 1.054 s"
         },
         {
           "label": "SMLALL VGx4 (INT8 long-long 4v)",
-          "value": 1.04,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.963 s"
+          "timeInfo": " 1.056 s"
         },
         {
           "label": "BFMOPA za0.s (BF16 outer product)",
-          "value": 0.53,
+          "value": 0.47,
           "unit": "Gops/s",
-          "timeInfo": " 1.904 s"
+          "timeInfo": " 2.108 s"
         },
         {
           "label": "FMOPA za0.d (FP64 outer product)",
-          "value": 1.05,
+          "value": 0.95,
           "unit": "Gops/s",
-          "timeInfo": " 0.955 s"
+          "timeInfo": " 1.053 s"
         }
       ]
     },
@@ -7128,51 +7590,51 @@
       "items": [
         {
           "label": "FMOPA  1 threads:",
-          "value": 2.156,
+          "value": 1.949,
           "unit": "TFLOPS",
-          "timeInfo": " 0.237 s, 1000000000 ops/thread"
+          "timeInfo": " 0.263 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  2 threads:",
-          "value": 2.433,
+          "value": 3.835,
           "unit": "TFLOPS",
-          "timeInfo": " 0.421 s, 1000000000 ops/thread"
+          "timeInfo": " 0.267 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  4 threads:",
-          "value": 3.101,
+          "value": 3.918,
           "unit": "TFLOPS",
-          "timeInfo": " 0.660 s, 1000000000 ops/thread"
+          "timeInfo": " 0.523 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  6 threads:",
-          "value": 3.152,
+          "value": 3.741,
           "unit": "TFLOPS",
-          "timeInfo": " 0.975 s, 1000000000 ops/thread"
+          "timeInfo": " 0.821 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA  8 threads:",
-          "value": 3.222,
+          "value": 4.149,
           "unit": "TFLOPS",
-          "timeInfo": " 1.271 s, 1000000000 ops/thread"
+          "timeInfo": " 0.987 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 12 threads:",
-          "value": 3.13,
+          "value": 4.199,
           "unit": "TFLOPS",
-          "timeInfo": " 1.963 s, 1000000000 ops/thread"
+          "timeInfo": " 1.463 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 16 threads:",
-          "value": 3.177,
+          "value": 4.196,
           "unit": "TFLOPS",
-          "timeInfo": " 2.578 s, 1000000000 ops/thread"
+          "timeInfo": " 1.952 s, 1000000000 ops/thread"
         },
         {
           "label": "FMOPA 18 threads:",
-          "value": 3.198,
+          "value": 4.172,
           "unit": "TFLOPS",
-          "timeInfo": " 2.882 s, 1000000000 ops/thread"
+          "timeInfo": " 2.209 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7181,51 +7643,51 @@
       "items": [
         {
           "label": "SMLALL  1 threads:",
-          "value": 1.078,
+          "value": 0.967,
           "unit": "TOPS",
-          "timeInfo": " 0.950 s, 1000000000 ops/thread"
+          "timeInfo": " 1.059 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  2 threads:",
-          "value": 2.176,
+          "value": 1.949,
           "unit": "TOPS",
-          "timeInfo": " 0.941 s, 1000000000 ops/thread"
+          "timeInfo": " 1.051 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  4 threads:",
-          "value": 4.197,
+          "value": 3.347,
           "unit": "TOPS",
-          "timeInfo": " 0.976 s, 1000000000 ops/thread"
+          "timeInfo": " 1.224 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  6 threads:",
-          "value": 6.182,
+          "value": 4.454,
           "unit": "TOPS",
-          "timeInfo": " 0.994 s, 1000000000 ops/thread"
+          "timeInfo": " 1.379 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL  8 threads:",
-          "value": 6.333,
+          "value": 5.045,
           "unit": "TOPS",
-          "timeInfo": " 1.293 s, 1000000000 ops/thread"
+          "timeInfo": " 1.624 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 12 threads:",
-          "value": 5.367,
+          "value": 4.94,
           "unit": "TOPS",
-          "timeInfo": " 2.290 s, 1000000000 ops/thread"
+          "timeInfo": " 2.488 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 16 threads:",
-          "value": 6.265,
+          "value": 5,
           "unit": "TOPS",
-          "timeInfo": " 2.615 s, 1000000000 ops/thread"
+          "timeInfo": " 3.277 s, 1000000000 ops/thread"
         },
         {
           "label": "SMLALL 18 threads:",
-          "value": 6.428,
+          "value": 4.996,
           "unit": "TOPS",
-          "timeInfo": " 2.868 s, 1000000000 ops/thread"
+          "timeInfo": " 3.689 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7234,51 +7696,51 @@
       "items": [
         {
           "label": "SMOPA i8  1 threads:",
-          "value": 4.314,
+          "value": 3.853,
           "unit": "TOPS",
-          "timeInfo": " 0.475 s, 1000000000 ops/thread"
+          "timeInfo": " 0.532 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  2 threads:",
-          "value": 5.221,
+          "value": 7.267,
           "unit": "TOPS",
-          "timeInfo": " 0.784 s, 1000000000 ops/thread"
+          "timeInfo": " 0.564 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  4 threads:",
-          "value": 6.137,
+          "value": 7.942,
           "unit": "TOPS",
-          "timeInfo": " 1.335 s, 1000000000 ops/thread"
+          "timeInfo": " 1.031 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  6 threads:",
-          "value": 6.305,
+          "value": 8.26,
           "unit": "TOPS",
-          "timeInfo": " 1.949 s, 1000000000 ops/thread"
+          "timeInfo": " 1.488 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8  8 threads:",
-          "value": 6.444,
+          "value": 8.304,
           "unit": "TOPS",
-          "timeInfo": " 2.542 s, 1000000000 ops/thread"
+          "timeInfo": " 1.973 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 12 threads:",
-          "value": 6.347,
+          "value": 8.397,
           "unit": "TOPS",
-          "timeInfo": " 3.872 s, 1000000000 ops/thread"
+          "timeInfo": " 2.927 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 16 threads:",
-          "value": 6.385,
+          "value": 8.403,
           "unit": "TOPS",
-          "timeInfo": " 5.132 s, 1000000000 ops/thread"
+          "timeInfo": " 3.900 s, 1000000000 ops/thread"
         },
         {
           "label": "SMOPA i8 18 threads:",
-          "value": 6.443,
+          "value": 8.342,
           "unit": "TOPS",
-          "timeInfo": " 5.722 s, 1000000000 ops/thread"
+          "timeInfo": " 4.419 s, 1000000000 ops/thread"
         }
       ]
     },
@@ -7287,147 +7749,147 @@
       "items": [
         {
           "label": "LUTI2 1v 8b               1 threads:",
-          "value": 6.35,
+          "value": 5.71,
           "unit": "Gops/s",
-          "timeInfo": " 0.157 s"
+          "timeInfo": " 0.175 s"
         },
         {
           "label": "LUTI2 1v 8b               2 threads:",
-          "value": 11.63,
+          "value": 11.13,
           "unit": "Gops/s",
-          "timeInfo": " 0.172 s"
+          "timeInfo": " 0.180 s"
         },
         {
           "label": "LUTI2 1v 8b               4 threads:",
-          "value": 17.61,
+          "value": 14.68,
           "unit": "Gops/s",
-          "timeInfo": " 0.227 s"
+          "timeInfo": " 0.272 s"
         },
         {
           "label": "LUTI2 1v 8b               6 threads:",
-          "value": 19.93,
+          "value": 15.2,
           "unit": "Gops/s",
-          "timeInfo": " 0.301 s"
+          "timeInfo": " 0.395 s"
         },
         {
           "label": "LUTI2 1v 8b               8 threads:",
-          "value": 20.52,
+          "value": 15.41,
           "unit": "Gops/s",
-          "timeInfo": " 0.390 s"
+          "timeInfo": " 0.519 s"
         },
         {
           "label": "LUTI2 1v 8b              12 threads:",
-          "value": 19.32,
+          "value": 15.57,
           "unit": "Gops/s",
-          "timeInfo": " 0.621 s"
+          "timeInfo": " 0.771 s"
         },
         {
           "label": "LUTI2 1v 8b              16 threads:",
-          "value": 21.32,
+          "value": 15.44,
           "unit": "Gops/s",
-          "timeInfo": " 0.750 s"
+          "timeInfo": " 1.036 s"
         },
         {
           "label": "LUTI2 1v 8b              18 threads:",
-          "value": 21.8,
+          "value": 15.55,
           "unit": "Gops/s",
-          "timeInfo": " 0.826 s"
+          "timeInfo": " 1.157 s"
         },
         {
           "label": "LUTI4 1v 8b               1 threads:",
-          "value": 6.25,
+          "value": 5.72,
           "unit": "Gops/s",
-          "timeInfo": " 0.160 s"
+          "timeInfo": " 0.175 s"
         },
         {
           "label": "LUTI4 1v 8b               2 threads:",
-          "value": 11.73,
+          "value": 11.26,
           "unit": "Gops/s",
-          "timeInfo": " 0.170 s"
+          "timeInfo": " 0.178 s"
         },
         {
           "label": "LUTI4 1v 8b               4 threads:",
-          "value": 18.17,
+          "value": 14.24,
           "unit": "Gops/s",
-          "timeInfo": " 0.220 s"
+          "timeInfo": " 0.281 s"
         },
         {
           "label": "LUTI4 1v 8b               6 threads:",
-          "value": 20.28,
+          "value": 15.17,
           "unit": "Gops/s",
-          "timeInfo": " 0.296 s"
+          "timeInfo": " 0.395 s"
         },
         {
           "label": "LUTI4 1v 8b               8 threads:",
-          "value": 21.09,
+          "value": 15.47,
           "unit": "Gops/s",
-          "timeInfo": " 0.379 s"
+          "timeInfo": " 0.517 s"
         },
         {
           "label": "LUTI4 1v 8b              12 threads:",
-          "value": 18.42,
+          "value": 15.56,
           "unit": "Gops/s",
-          "timeInfo": " 0.652 s"
+          "timeInfo": " 0.771 s"
         },
         {
           "label": "LUTI4 1v 8b              16 threads:",
-          "value": 21.23,
+          "value": 15.53,
           "unit": "Gops/s",
-          "timeInfo": " 0.753 s"
+          "timeInfo": " 1.030 s"
         },
         {
           "label": "LUTI4 1v 8b              18 threads:",
-          "value": 21.8,
+          "value": 15.6,
           "unit": "Gops/s",
-          "timeInfo": " 0.826 s"
+          "timeInfo": " 1.154 s"
         },
         {
           "label": "LUTI4 2v 16b              1 threads:",
-          "value": 6.32,
+          "value": 5.66,
           "unit": "Gops/s",
-          "timeInfo": " 0.158 s"
+          "timeInfo": " 0.177 s"
         },
         {
           "label": "LUTI4 2v 16b              2 threads:",
-          "value": 9.21,
+          "value": 10.81,
           "unit": "Gops/s",
-          "timeInfo": " 0.217 s"
+          "timeInfo": " 0.185 s"
         },
         {
           "label": "LUTI4 2v 16b              4 threads:",
-          "value": 12.44,
+          "value": 12.62,
           "unit": "Gops/s",
-          "timeInfo": " 0.322 s"
+          "timeInfo": " 0.317 s"
         },
         {
           "label": "LUTI4 2v 16b              6 threads:",
-          "value": 12.99,
+          "value": 11.61,
           "unit": "Gops/s",
-          "timeInfo": " 0.462 s"
+          "timeInfo": " 0.517 s"
         },
         {
           "label": "LUTI4 2v 16b              8 threads:",
-          "value": 12.95,
+          "value": 11.72,
           "unit": "Gops/s",
-          "timeInfo": " 0.618 s"
+          "timeInfo": " 0.683 s"
         },
         {
           "label": "LUTI4 2v 16b             12 threads:",
-          "value": 13.03,
+          "value": 12.26,
           "unit": "Gops/s",
-          "timeInfo": " 0.921 s"
+          "timeInfo": " 0.979 s"
         },
         {
           "label": "LUTI4 2v 16b             16 threads:",
-          "value": 15.62,
+          "value": 12.47,
           "unit": "Gops/s",
-          "timeInfo": " 1.024 s"
+          "timeInfo": " 1.283 s"
         },
         {
           "label": "LUTI4 2v 16b             18 threads:",
-          "value": 16.76,
+          "value": 12.93,
           "unit": "Gops/s",
-          "timeInfo": " 1.074 s"
+          "timeInfo": " 1.392 s"
         }
       ]
     }

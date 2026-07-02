@@ -24,10 +24,10 @@ A reference list of all A64 SME instructions is available at [`probes/sme_instru
 **Usage:**
 
 ```bash
-bash tests/run_full_throughput_tests.sh
+ANE_THROUGHPUT_COOLDOWN_SECONDS=30 bash tests/run_full_throughput_tests.sh
 ```
 
-The script is fully self-contained — it generates all source code (C, Metal, ARM assembly, Swift) inline, builds in a temp directory, and cleans up after itself. Each worker self-times with nanosecond-precision timestamps. The analyzer finds the proven-concurrent window and computes throughput from interior heartbeats only, discarding startup and shutdown artifacts.
+The script is fully self-contained — it generates all source code (C, Metal, ARM assembly, Swift) inline, builds in a temp directory, and cleans up after itself. Each worker self-times with nanosecond-precision timestamps. The analyzer finds the proven-concurrent window and computes throughput from interior heartbeats only, discarding startup and shutdown artifacts. By default, it cools down for 30 seconds between test scenarios; set `ANE_THROUGHPUT_COOLDOWN_SECONDS=0` to disable that pause.
 
 **Workers tested:**
 - **GPU** (Metal): `char4` INT8 multiply-accumulate
@@ -41,6 +41,7 @@ Thread counts are auto-detected from your hardware topology.
 ## Dashboard
 
 The React-based dashboard dynamically compiles and runs probing payloads against your hardware, then presents the results in an interactive single-page application.
+The wrapper checks for Xcode Command Line Tools, Apple clang/clang++, CMake, a native build backend, Node/npm, and Python venv support before starting the build. After confirmation it creates `.dashboard-venv/`, installs `torch` and `torchvision` there, and runs the dashboard with that environment active.
 
 **Usage:**
 
@@ -49,10 +50,11 @@ The React-based dashboard dynamically compiles and runs probing payloads against
 ```
 
 This will:
-1. Build the MNIST demo pipeline.
+1. Run the MNIST SME benchmark and PyTorch comparison.
 2. Run live hardware probes against your SME hardware.
-3. Build the Vite React application into a single `dist/index.html` file.
-4. Open the dashboard in your browser.
+3. Run the throughput contention suite with cooldowns between scenarios.
+4. Build the Vite React application into a single `dist/index.html` file.
+5. Open the dashboard in your browser.
 
 Pre-built dashboard snapshots for M4 and M5 are available in the [`dashboards/`](../dashboards/) directory.
 
@@ -60,4 +62,4 @@ For dashboard development details (HMR, data fetching, build process), see [`sme
 
 ## PyTorch Comparison
 
-[`scripts/mnist_pytorch_train_gpu.py`](../scripts/mnist_pytorch_train_gpu.py) trains the same MNIST network using PyTorch CPU (Eager) for comparison against the SME bytecode interpreter. Requires Python 3.10+ with `torch` and `torchvision` installed.
+[`scripts/mnist_pytorch_train_gpu.py`](../scripts/mnist_pytorch_train_gpu.py) trains the same MNIST network using PyTorch CPU (Eager) for comparison against the SME bytecode interpreter. `dashboard.sh` installs `torch` and `torchvision` into `.dashboard-venv/` automatically.

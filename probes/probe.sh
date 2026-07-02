@@ -16,6 +16,7 @@
 SKIP_OPS=0
 SKIP_TP=0
 SKIP_TITLE=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for arg in "$@"; do
     case "$arg" in
         ops) SKIP_OPS=1 ;;
@@ -36,7 +37,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 set +e
-cd "$(dirname "$0")"
+cd "$SCRIPT_DIR"
 CYAN="\033[36m"
 NC="\033[0m"
 GREEN="\033[32m"
@@ -48,11 +49,10 @@ if [ $SKIP_TITLE -eq 0 ]; then
     echo " To skip the throughput tests and run only instruction probes, use: $0 --skip tp"
 fi
 set +e
-cd "$(dirname "$0")"
+cd "$SCRIPT_DIR"
 CC="clang"
 CFLAGS="-O0 -arch arm64"
-ASMFLAGS="-arch arm64 -march=armv9-a+sme2+sve2+sme-lutv2+sme-f8f32+sme-f8f16+sme-f16f16+sme-i16i64+sme-f64f64+sme2p1+b16b16+fp8+i8mm+sve2-aes+sve2-sm4+sve2-sha3+sve2-bitperm+f32mm"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ASMFLAGS="-arch arm64 -march=armv9-a+sme2+sve2+sve2p1+sme-lutv2+sme-f8f32+sme-f8f16+sme-f16f16+sme-i16i64+sme-f64f64+sme2p1+b16b16+fp8+i8mm+sve2-aes+sve2-sm4+sve2-sha3+sve2-bitperm+f32mm"
 PROBE_DIR="$SCRIPT_DIR/../build/probe"
 mkdir -p "$PROBE_DIR"
 MAIN_C="$PROBE_DIR/main.c"
@@ -81,7 +81,8 @@ rm -f "$FAIL_LOG"
 # Params:
 #   $1 = instruction body (e.g. "add z0.b, z1.b, z2.b")
 #   $2 = mode ("sme" for streaming+ZA, "nosve" for bare SVE)
-#   $3 = expected exit code (e.g. "132" for SIGILL), empty = expect ok
+#   $3 = expected exit code (e.g. "132" for SIGILL), "compile" for
+#        expected assembler rejection, empty = expect ok
 # Builds a small assembly program with the given instruction, as well as a
 # small C harness to call it. Compiles the test, and then runs it as a
 # subprocess, checking the exit code against the expected result. Logs results.
@@ -91,7 +92,7 @@ probe_one() {
     rm -f "$PROBE_BIN" "$PROBE_BIN.s"
     local display="$1"
     local mode="${2:-sme}"  # sme = streaming+ZA (default), nosve = bare
-    local expect="${3:-}"   # expected exit code (e.g. "132" for SIGILL), empty = expect ok
+    local expect="${3:-}"   # expected exit code, "compile", or empty = expect ok
     # Strip parenthesized description to get clean assembly
     # Only strip trailing (description) — do NOT strip [x0] addressing modes
     local body
@@ -191,11 +192,13 @@ print(s, end="")
             echo '    stp d14, d15, [sp, #80]'
             echo '    sub sp, sp, #4096'
             echo '    mov x0, sp'
+            echo '    mov x1, xzr'
             echo '    smstart'
             echo '    ptrue p0.b'
             echo '    ptrue p1.s'
             echo '    ptrue p2.d'
             echo '    zero {za}'
+            echo '    dup z1.d, x1'
             echo "    $body"
             echo '    smstop'
             echo '    add sp, sp, #4096'
@@ -213,6 +216,11 @@ print(s, end="")
     if [ $? -ne 0 ]; then
         local err_detail
         err_detail=$(echo "$compile_err" | grep -m1 "error:" | sed 's/.*error://' | head -c 80)
+        if [ "$expect" = "compile" ]; then
+            printf "\033[36mCOMPILE_FAIL (expected)|%s\033[0m\n" "$err_detail"
+            EXPECTED_FAIL_COUNT=$((EXPECTED_FAIL_COUNT + 1))
+            return
+        fi
         printf "COMPILE_FAIL|%s\n" "$err_detail"
         COMPILE_FAIL_COUNT=$((COMPILE_FAIL_COUNT + 1))
         echo "COMPILE_FAIL | $display | $err_detail" >> "$FAIL_LOG"
@@ -228,6 +236,17 @@ print(s, end="")
     local run_output
     run_output=$("$PROBE_BIN" 2>&1)
     local exit_code=$?
+    if [ "$expect" = "compile" ]; then
+        if [ $exit_code -eq 0 ]; then
+            printf "\033[33mUNEXPECTED OK\033[0m (expected compile fail)\n"
+            echo "UNEXPECTED_OK | $display | expected compile fail" >> "$FAIL_LOG"
+        else
+            printf "\033[31mUNEXPECTED RUNTIME_FAIL\033[0m (exit=%d, expected compile fail) %s\n" "$exit_code" "$run_output"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+            echo "UNEXPECTED_RUNTIME_FAIL | $display | exit=$exit_code expected=compile $run_output" >> "$FAIL_LOG"
+        fi
+        return
+    fi
     if [ -n "$expect" ]; then
         # We expect a specific exit code
         if [ $exit_code -eq "$expect" ]; then
@@ -395,20 +414,20 @@ probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, {z2.h-z3.h} (2v bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, {z4.h-z7.h} (4v bfmlsl ZA)"
 probe_one "bfmlsl za.s[w8,0:1,VGx2], {z0.h-z1.h}, z2.h[0] (2v bfmlsl idx)"
 probe_one "bfmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v bfmlsl idx)"
-probe_one "bfmlslb z0.s, z1.h, z2.h (BF16 mul-sub long bot)" "sme" "$EXPECT_M5"
-probe_one "bfmlslb z0.s, z1.h, z2.h[0] (BF16 mul-sub long bot idx)" "sme" "$EXPECT_M5"
-probe_one "bfmlslt z0.s, z1.h, z2.h (BF16 mul-sub long top)" "sme" "$EXPECT_M5"
-probe_one "bfmlslt z0.s, z1.h, z2.h[0] (BF16 mul-sub long top idx)" "sme" "$EXPECT_M5"
+probe_one "bfmlslb z0.s, z1.h, z2.h (BF16 mul-sub long bot)"
+probe_one "bfmlslb z0.s, z1.h, z2.h[0] (BF16 mul-sub long bot idx)"
+probe_one "bfmlslt z0.s, z1.h, z2.h (BF16 mul-sub long top)"
+probe_one "bfmlslt z0.s, z1.h, z2.h[0] (BF16 mul-sub long top idx)"
 probe_one "bfmmla z0.s, z1.h, z2.h (BF16 matmul)" sme 132
-probe_one "bfmop4a za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile acc)" sme 132
-probe_one "bfmop4s za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile sub)" sme 132
+probe_one "bfmop4a za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile acc)" sme compile
+probe_one "bfmop4s za0.s, z0.h, z4.h (MOP4 BF16 qtr-tile sub)" sme compile
 probe_one "bfmopa za0.s, p0/m, p0/m, z0.h, z1.h (BF16 outer)"
 probe_one "bfmopa za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mopa)" "sme" "$EXPECT_M5"
 probe_one "bfmops za0.s, p0/m, p0/m, z0.h, z1.h (BF16 mops)"
 probe_one "bfmops za0.h, p0/m, p0/m, z0.h, z1.h (BF16 non-wid mops)" "sme" "$EXPECT_M5"
 probe_one "bfsub za.h[w8,0,VGx2], {z0.h-z1.h} (2v bfsub from ZA)" "sme" "$EXPECT_M5"
 probe_one "bfsub za.h[w8,0,VGx4], {z0.h-z3.h} (4v bfsub from ZA)" "sme" "$EXPECT_M5"
-probe_one "bftmopa za0.s, {z0.h-z1.h}, z2.h, z3[0] (TMOP BF16 sparse)" sme 132
+probe_one "bftmopa za0.s, {z0.h-z1.h}, z2.h, z3[0] (TMOP BF16 sparse)" sme compile
 probe_one "bfvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (BF16 vertical dot)"
 probe_one "bgrp z0.s, z1.s, z2.s (Bit group, partition bits)" sme 132
 probe_one "bic z0.d, z1.d, z2.d (AND NOT)"
@@ -441,8 +460,8 @@ probe_one "cntb x0 (count bytes)"
 probe_one "cntd x0 (count dblwd)"
 probe_one "cnth x0 (count halfs)"
 probe_one "cntp x0, p0, p0.s (CNTP)"
-probe_one "cntp x0, pn8.s, vlx2 (count PN elems x2)" "sme" "$EXPECT_M5"
-probe_one "cntp x0, pn8.s, vlx4 (count PN elems x4)" "sme" "$EXPECT_M5"
+probe_one "cntp x0, pn8.s, vlx2 (count PN elems x2)"
+probe_one "cntp x0, pn8.s, vlx4 (count PN elems x4)"
 probe_one "cntw x0 (count words)"
 probe_one "compact z0.s, p0, z1.s (compact)" sme 132
 probe_one "cpy z0.s, p0/m, #0 (copy imm)"
@@ -624,9 +643,9 @@ probe_one "fmlsl za.s[w8,0:1,VGx4], {z0.h-z3.h}, z4.h[0] (4v fmlsl idx)"
 probe_one "fmlslb z0.s, z1.h, z2.h (FP16 widen mul-sub low)"
 probe_one "fmlslt z0.s, z1.h, z2.h (FP16 widen mul-sub high)"
 probe_one "fmmla z0.s, z1.s, z2.s (FP32 matmul)" sme 132
-probe_one "fmop4a za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile acc)" sme 132
-probe_one "fmop4a za0.s, z0.b, z4.b (MOP4 FP8 qtr-tile acc)" sme 132
-probe_one "fmop4s za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile sub)" sme 132
+probe_one "fmop4a za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile acc)" sme compile
+probe_one "fmop4a za0.s, z0.b, z4.b (MOP4 FP8 qtr-tile acc)" sme compile
+probe_one "fmop4s za0.s, z0.s, z4.s (MOP4 FP32 qtr-tile sub)" sme compile
 probe_one "fmopa za0.s, p0/m, p0/m, z0.s, z1.s (FP32 outer)"
 probe_one "fmopa za0.s, p0/m, p0/m, z0.h, z1.h (FP16->FP32)"
 probe_one "fmopa za0.d, p0/m, p0/m, z0.d, z1.d (FP64 mopa)"
@@ -677,7 +696,7 @@ probe_one "fsub za.s[w8,0,VGx4], {z0.s-z3.s} (4v fsub from ZA)"
 probe_one "fsubr z0.s, p0/m, z0.s, z1.s (FP subtract reversed)"
 probe_one "fsubr z0.s, p0/m, z0.s, #0.5 (FP subtract reversed, imm)"
 probe_one "ftmad z0.s, z0.s, z1.s, #0 (trig coeff)" sme 132
-probe_one "ftmopa za0.s, {z0.s-z1.s}, z2.s, z3[0] (TMOP FP32 sparse)" sme 132
+probe_one "ftmopa za0.s, {z0.s-z1.s}, z2.s, z3[0] (TMOP FP32 sparse)" sme compile
 probe_one "ftsmul z0.s, z1.s, z2.s (FP trig select coefficient)" sme 132
 probe_one "ftssel z0.s, z1.s, z2.s (FP trig start multiply)" sme 132
 probe_one "fvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (FP16 vertical dot)"
@@ -751,7 +770,7 @@ probe_one "ldnt1h {z0.h}, p0/z, [x0] (Non-temporal load halfwords)"
 probe_one "ldnt1h {z0.h,z8.h}, pn8/z, [x0] (ldnt1h strided 2)" sm
 probe_one "ldnt1w {z0.s}, p0/z, [x0] (Non-temporal load words)"
 probe_one "ldnt1w {z0.s,z8.s}, pn8/z, [x0] (ldnt1w strided 2)" sm
-probe_one "ldr pn8, [x0] (load pred-as-counter)" "sme" "$EXPECT_M5"
+probe_one "ldr pn8, [x0] (load pred-as-counter)"
 probe_one "ldr za[w12,0], [x0] (load ZA array vec)"
 probe_one "ldr zt0, [x0] (load ZT0)" sme
 probe_one "lsl z0.b, p0/m, z0.b, z1.b (shift left)"
@@ -777,8 +796,8 @@ probe_one "luti4 {z0.h-z1.h}, zt0, z2[0] (2v luti4 16b)" sme
 probe_one "luti4 {z0.s-z1.s}, zt0, z2[0] (2v luti4 32b)" sme
 probe_one "luti4 {z0.h-z3.h}, zt0, z2[0] (4v luti4 16b)" sme
 probe_one "luti4 {z0.s-z3.s}, zt0, z2[0] (4v luti4 32b)" sme
-probe_one "luti4 {z0.b-z1.b}, zt0, z2[0], #0 (LUTv2 luti4 8b seg)" sme 132
-probe_one "luti4 {z0.h-z1.h}, zt0, z2[0], #0 (LUTv2 luti4 16b seg)" sme 132
+probe_one "luti4 {z0.b-z1.b}, zt0, z2[0], #0 (LUTv2 luti4 8b seg)" sme compile
+probe_one "luti4 {z0.h-z1.h}, zt0, z2[0], #0 (LUTv2 luti4 16b seg)" sme compile
 probe_one "mad z0.s, p0/m, z1.s, z2.s (MAD)"
 probe_one "match p0.b, p0/z, z0.b, z1.b (set match)" sme 132
 probe_one "mla z0.s, p0/m, z1.s, z2.s (MLA pred)"
@@ -793,7 +812,7 @@ probe_one "mov w12, #0
 probe_one "mov w12, #0
       mova   za0h.d[w12, 0], p0/m, z0.d (mova vec->tile dword)"
 probe_one "mov w8, #0
-      zero   za.d[w8, 0:1] (double-vec zero pair)" sme
+      zero   za.d[w8, 0:1] (double-vec zero pair)" sme 132
 probe_one "mov w12, #0
       ld1b   za0h.b[w12,0], p0/z, [x0] (tile ld1b)"
 probe_one "mov w12, #0
@@ -854,8 +873,8 @@ probe_one "orqv v0.16b, p0, z1.b (OR reduce 128b)" "sme" "$EXPECT_M5"
 probe_one "orr z0.d, z1.d, z2.d (OR)"
 probe_one "orrs p0.b, p0/z, p0.b, p0.b (Pred OR, setting flags)"
 probe_one "orv b0, p0, z1.b (Bitwise OR reduction)"
-probe_one "pext p0.s, pn8[0] (extract pred from counter)" "sme" "$EXPECT_M5"
-probe_one "pext {p0.s, p1.s}, pn8[0] (extract pred pair from counter)" "sme" "$EXPECT_M5"
+probe_one "pext p0.s, pn8[0] (extract pred from counter)"
+probe_one "pext {p0.s, p1.s}, pn8[0] (extract pred pair from counter)"
 probe_one "pfalse p0.b (Set predicate to all-false)"
 probe_one "pfirst p0.b, p0, p0.b (Set first active to true)"
 probe_one "pmov p0.s, z0 (pred from vector)" "sme" "$EXPECT_M5"
@@ -864,13 +883,13 @@ probe_one "pmul z0.b, z1.b, z2.b (poly mul)"
 probe_one "pmullb z0.h, z1.b, z2.b (Polynomial mul long, bot)"
 probe_one "pmullt z0.h, z1.b, z2.b (Polynomial mul long, top)"
 probe_one "pnext p0.s, p0, p0.s (Find next active element)"
-probe_one "psel p0, p1, p2.s[w12, 0] (predicate select)" "sme" "$EXPECT_M5"
+probe_one "psel p0, p1, p2.s[w12, 0] (predicate select)"
 probe_one "ptest p0, p0.b (Test predicate, set flags)"
 probe_one "ptrue p0.b (all-true .b)"
 probe_one "ptrue p0.h (all-true .h)"
 probe_one "ptrue p0.s (all-true .s)"
 probe_one "ptrue p0.d (all-true .d)"
-probe_one "ptrue pn8.s (pred-as-counter all-true)" "sme" "$EXPECT_M5"
+probe_one "ptrue pn8.s (pred-as-counter all-true)"
 probe_one "ptrues p0.s (All-true predicate, set flags)"
 probe_one "punpkhi p0.h, p0.b (Pred unpack, high half->wide)"
 probe_one "punpklo p0.h, p0.b (Pred unpack, low half->wide)"
@@ -979,8 +998,8 @@ probe_one "smlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b[0] (4v smlsll idx)"
 probe_one "smlsll za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v smlsll mv)"
 probe_one "smlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v smlsll mv)"
 probe_one "smmla z0.s, z1.b, z2.b (Signed 8b matrix mul accum)" sme 132
-probe_one "smop4a za0.s, z0.b, z4.b (MOP4 S8 qtr-tile acc)" sme 132
-probe_one "smop4s za0.s, z0.b, z4.b (MOP4 S8 qtr-tile sub)" sme 132
+probe_one "smop4a za0.s, z0.b, z4.b (MOP4 S8 qtr-tile acc)" sme compile
+probe_one "smop4s za0.s, z0.b, z4.b (MOP4 S8 qtr-tile sub)" sme compile
 probe_one "smopa za0.s, p0/m, p0/m, z0.b, z1.b (INT8 outer s)"
 probe_one "smopa za0.s, p0/m, p1/m, z0.b, z1.b (I8->I32)"
 probe_one "smopa za1.s, p0/m, p1/m, z0.b, z1.b (I8->I32 tile 1?)"
@@ -1102,7 +1121,7 @@ probe_one "st4d {z0.d, z1.d, z2.d, z3.d}, p0, [x0] (Store 4-struct doublewords)"
 probe_one "st4h {z0.h, z1.h, z2.h, z3.h}, p0, [x0] (Store 4-struct halfwords)"
 probe_one "st4q {z0.q-z3.q}, p0, [x0] (st4 128b elem)" "sme" "$EXPECT_M5"
 probe_one "st4w {z0.s, z1.s, z2.s, z3.s}, p0, [x0] (Store 4-struct words)"
-probe_one "stmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S8 sparse)" sme 132
+probe_one "stmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S8 sparse)" sme compile
 probe_one "stnt1b {z0.b}, p0, [x0] (Non-temporal store bytes)"
 probe_one "stnt1b {z0.b,z8.b}, pn8, [x0] (stnt1b strided 2)" sm
 probe_one "stnt1d {z0.d}, p0, [x0] (Non-temporal store dblwords)"
@@ -1111,7 +1130,7 @@ probe_one "stnt1h {z0.h}, p0, [x0] (Non-temporal store halfwords)"
 probe_one "stnt1h {z0.h,z8.h}, pn8, [x0] (stnt1h strided 2)" sm
 probe_one "stnt1w {z0.s}, p0, [x0] (Non-temporal store words)"
 probe_one "stnt1w {z0.s,z8.s}, pn8, [x0] (stnt1w strided 2)" sm
-probe_one "str pn8, [x0] (store pred-as-counter)" "sme" "$EXPECT_M5"
+probe_one "str pn8, [x0] (store pred-as-counter)"
 probe_one "str za[w12,0], [x0] (store ZA array vec)"
 probe_one "str zt0, [x0] (store ZT0)" sme
 probe_one "sub z0.b, z1.b, z2.b (INT8 sub)"
@@ -1135,8 +1154,8 @@ probe_one "sudot za.s[w8,0,VGx2], {z0.b-z1.b}, z2.b (2v sudot single)"
 probe_one "sudot za.s[w8,0,VGx4], {z0.b-z3.b}, z4.b (4v sudot single)"
 probe_one "sumlall za.s[w8,0:3,VGx2], {z0.b-z1.b}, z2.b (2v sumlall sgl)"
 probe_one "sumlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b (4v sumlall sgl)"
-probe_one "sumop4a za0.s, z0.b, z4.b (MOP4 S*U qtr-tile acc)" sme 132
-probe_one "sumop4s za0.s, z0.b, z4.b (MOP4 S*U qtr-tile sub)" sme 132
+probe_one "sumop4a za0.s, z0.b, z4.b (MOP4 S*U qtr-tile acc)" sme compile
+probe_one "sumop4s za0.s, z0.b, z4.b (MOP4 S*U qtr-tile sub)" sme compile
 probe_one "sumopa za0.s, p0/m, p0/m, z0.b, z1.b (s*u outer)"
 probe_one "sumopa za0.s, p0/m, p1/m, z0.b, z1.b (S8*U8->I32)"
 probe_one "sumops za0.s, p0/m, p0/m, z0.b, z1.b (Signed*unsigned outer prod sub)"
@@ -1147,7 +1166,7 @@ probe_one "sunpk {z0.s-z3.s}, {z2.h-z3.h} (4-vec sunpk h->s)"
 probe_one "sunpkhi z0.h, z1.b (unpack hi s)"
 probe_one "sunpklo z0.h, z1.b (unpack lo s)"
 probe_one "suqadd z0.s, p0/m, z0.s, z1.s (Signed sat add unsigned)"
-probe_one "sutmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S*U sparse)" sme 132
+probe_one "sutmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP S*U sparse)" sme compile
 probe_one "suvdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Signedxunsigned vdot)"
 probe_one "svdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Signed vertical dot)"
 probe_one "svdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (2way signed vdot)"
@@ -1237,8 +1256,8 @@ probe_one "umlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b[0] (4v umlsll idx)"
 probe_one "umlsll za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v umlsll mv)"
 probe_one "umlsll za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v umlsll mv)"
 probe_one "ummla z0.s, z1.b, z2.b (Unsigned 8b matrix mul accum)" sme 132
-probe_one "umop4a za0.s, z0.b, z4.b (MOP4 U8 qtr-tile acc)" sme 132
-probe_one "umop4s za0.s, z0.b, z4.b (MOP4 U8 qtr-tile sub)" sme 132
+probe_one "umop4a za0.s, z0.b, z4.b (MOP4 U8 qtr-tile acc)" sme compile
+probe_one "umop4s za0.s, z0.b, z4.b (MOP4 U8 qtr-tile sub)" sme compile
 probe_one "umopa za0.s, p0/m, p0/m, z0.b, z1.b (INT8 outer u)"
 probe_one "umopa za0.s, p0/m, p1/m, z0.b, z1.b (U8->I32)"
 probe_one "umopa za0.d, p0/m, p0/m, z0.h, z1.h (I16->I64)"
@@ -1303,14 +1322,14 @@ probe_one "usmlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, z4.b (4v usmlall sgl)"
 probe_one "usmlall za.s[w8,0:3,VGx2], {z0.b-z1.b}, {z2.b-z3.b} (2v usmlall mv)"
 probe_one "usmlall za.s[w8,0:3,VGx4], {z0.b-z3.b}, {z4.b-z7.b} (4v usmlall mv)"
 probe_one "usmmla z0.s, z1.b, z2.b (Mixed 8b matrix mul accum)" sme 132
-probe_one "usmop4a za0.s, z0.b, z4.b (MOP4 U*S qtr-tile acc)" sme 132
-probe_one "usmop4s za0.s, z0.b, z4.b (MOP4 U*S qtr-tile sub)" sme 132
+probe_one "usmop4a za0.s, z0.b, z4.b (MOP4 U*S qtr-tile acc)" sme compile
+probe_one "usmop4s za0.s, z0.b, z4.b (MOP4 U*S qtr-tile sub)" sme compile
 probe_one "usmopa za0.s, p0/m, p0/m, z0.b, z1.b (u*s outer)"
 probe_one "usmopa za0.s, p0/m, p1/m, z0.b, z1.b (U8*S8->I32)"
 probe_one "usmops za0.s, p0/m, p0/m, z0.b, z1.b (Unsigned*signed outer prod sub)"
 probe_one "usqadd z0.s, p0/m, z0.s, z1.s (Unsigned sat add signed)"
 probe_one "usra z0.s, z1.s, #1 (Unsigned shift right+accum)"
-probe_one "ustmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U*S sparse)" sme 132
+probe_one "ustmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U*S sparse)" sme compile
 probe_one "usublb z0.s, z1.h, z2.h (Unsigned sub long bottom)"
 probe_one "usublt z0.s, z1.h, z2.h (Unsigned sub long top)"
 probe_one "usubwb z0.s, z0.s, z1.h (Unsigned sub wide, bottom)"
@@ -1322,7 +1341,7 @@ probe_one "uunpk {z0.h-z3.h}, {z2.b-z3.b} (4v uunpk b->h)"
 probe_one "uunpk {z0.s-z3.s}, {z2.h-z3.h} (4v uunpk h->s)"
 probe_one "uunpkhi z0.h, z1.b (unpack hi u)"
 probe_one "uunpklo z0.h, z1.b (unpack lo u)"
-probe_one "utmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U8 sparse)" sme 132
+probe_one "utmopa za0.s, {z0.b-z1.b}, z2.b, z3[0] (TMOP U8 sparse)" sme compile
 probe_one "uvdot za.s[w8,0], {z0.b-z3.b}, z4.b[0] (Unsigned vertical dot)"
 probe_one "uvdot za.s[w8,0], {z0.h-z1.h}, z2.h[0] (2way unsigned vdot)"
 probe_one "uxtb z0.h, p0/m, z1.h (zero ext b)"
@@ -1337,17 +1356,17 @@ probe_one "uzp2 p0.s, p0.s, p1.s (Deinterleave preds, high)"
 probe_one "uzpq1 z0.s, z1.s, z2.s (unzip per 128b lo)" "sme" "$EXPECT_M5"
 probe_one "uzpq2 z0.s, z1.s, z2.s (unzip per 128b hi)" "sme" "$EXPECT_M5"
 probe_one "whilege p0.s, x0, x1 (while >=)"
-probe_one "whilege pn8.s, x0, x1, vlx2 (while GE pred pair)" "sme" "$EXPECT_M5"
+probe_one "whilege pn8.s, x0, x1, vlx2 (while GE pred pair)"
 probe_one "whilegt p0.s, x0, x1 (while >)"
-probe_one "whilegt pn8.s, x0, x1, vlx2 (while GT pred pair)" "sme" "$EXPECT_M5"
+probe_one "whilegt pn8.s, x0, x1, vlx2 (while GT pred pair)"
 probe_one "whilehi p0.s, x0, x1 (Pred while higher, unsigned)"
 probe_one "whilehs p0.s, x0, x1 (Pred while higher/same, uns)"
 probe_one "whilele p0.s, x0, x1 (Pred while less-or-equal)"
-probe_one "whilele pn8.s, x0, x1, vlx2 (while LE pred pair)" "sme" "$EXPECT_M5"
+probe_one "whilele pn8.s, x0, x1, vlx2 (while LE pred pair)"
 probe_one "whilelo p0.s, x0, x1 (Pred while lower, unsigned)"
 probe_one "whilels p0.s, x0, x1 (Pred while lower/same, uns)"
 probe_one "whilelt p0.s, xzr, x0 (while lt)"
-probe_one "whilelt pn8.s, x0, x1, vlx2 (while LT pred pair)" "sme" "$EXPECT_M5"
+probe_one "whilelt pn8.s, x0, x1, vlx2 (while LT pred pair)"
 probe_one "whilerw p0.s, x0, x1 (Pred while read-after-write)"
 probe_one "whilewr p0.s, x0, x1 (Pred while write-after-read)"
 probe_one "wrffr p0.b (Write first-fault register)" sme 132
