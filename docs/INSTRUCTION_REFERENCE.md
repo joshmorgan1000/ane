@@ -120,6 +120,113 @@ Clobbers: z{dst}, z0-z1 (scratch)
 Preserves: all z-regs except z{dst}, ZA, ZT0
 ```
 
+### `fadd_zreg_f16` (0x80)
+`z{dst}.h = z{src1}.h + z{src2}.h`
+```
+Encoding: [0x80][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `fsub_zreg_f16` (0x81)
+`z{dst}.h = z{src1}.h - z{src2}.h`
+```
+Encoding: [0x81][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `fmul_zreg_f16` (0x82)
+`z{dst}.h = z{src1}.h * z{src2}.h`
+```
+Encoding: [0x82][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}, z0-z1 (scratch)
+Preserves: all z-regs except z{dst}, ZA, ZT0
+```
+
+### `convert_f32_f16` (0x83)
+Convert f32 stream windows to f16 stream windows.
+```
+Encoding: [0x83][src_idx:u8][dst_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count groups of 32 f32 elements
+Output: param[dst_idx] -> chunk_count groups of 32 f16 elements
+Clobbers: z0-z1, p0-p2
+Preserves: ZA, ZT0
+```
+
+### `convert_f16_f32` (0x84)
+Convert f16 stream windows to f32 stream windows.
+```
+Encoding: [0x84][src_idx:u8][dst_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count groups of 32 f16 elements
+Output: param[dst_idx] -> chunk_count groups of 32 f32 elements
+Clobbers: z0-z1, p0-p1
+Preserves: ZA, ZT0
+```
+
+### `convert_f32_bf16` (0x85)
+Convert f32 stream windows to bf16 stream windows.
+```
+Encoding: [0x85][src_idx:u8][dst_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count groups of 32 f32 elements
+Output: param[dst_idx] -> chunk_count groups of 32 bf16 elements
+Clobbers: z0-z1, p0-p2
+Preserves: ZA, ZT0
+```
+
+### `convert_bf16_f32` (0x86)
+Convert bf16 stream windows to f32 stream windows.
+```
+Encoding: [0x86][src_idx:u8][dst_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count groups of 32 bf16 elements
+Output: param[dst_idx] -> chunk_count groups of 32 f32 elements
+Clobbers: z0-z1, p0-p1
+Preserves: ZA, ZT0
+```
+
+### `fabs_zreg` (0x87)
+Absolute value per f32 lane.
+```
+Encoding: [0x87][dst:u8][src:u8]
+Clobbers: z{dst}, z0, p0
+Preserves: ZA, ZT0
+```
+
+### `fsqrt_zreg` (0x88)
+Square root per f32 lane.
+```
+Encoding: [0x88][dst:u8][src:u8]
+Clobbers: z{dst}, z0, p0
+Preserves: ZA, ZT0
+```
+
+### `fdiv_zreg` (0x89)
+Division per f32 lane: `z{dst}.s = z{src1}.s / z{src2}.s`
+```
+Encoding: [0x89][dst:u8][src1:u8][src2:u8]
+Clobbers: z{dst}, z0-z1, p0
+Preserves: ZA, ZT0
+```
+
+### `load_scalar_param_f16` (0x8A)
+Loads one bound f16 scalar and broadcasts it into z0.h.
+```
+Encoding: [0x8A][idx:u8]
+Input: param[idx] -> one f16 scalar
+Clobbers: z0, p0
+Preserves: z1-z31, ZA, ZT0
+```
+
+### `pack_panel_f32` (0x8B)
+Packs one f32 16x16 source tile into the K-major panel layout consumed by `matmul_partial_tile_f32`.
+```
+Encoding: [0x8B][src_idx:u8][dst_idx:u8][row_stride:u32][flags:u8]
+flags bit 0 clear: A panel, dst[k,row] = src[row * row_stride + k]
+flags bit 0 set:   B panel, dst[k,col] = src[k * row_stride + col]
+Clobbers: z0-z3, za2, p0
+Preserves: ZT0
+```
+
 ### `fmla_zreg` (0x3E)
 `z{dst}.s += z{src1}.s * z{src2}.s` (fused multiply-accumulate)
 ```
@@ -433,6 +540,125 @@ Preserves: z1-z3, z5-z15, z17-z31, ZA, ZT0
 Two-pass: compute ||v||, then multiply by 1/||v||
 ```
 
+### `matmul_partial_tile_f32` (0x28)
+Computes one fp32 partial tile from two bound 16-vector panels.
+```
+Encoding: [0x28][a_idx:u8][b_idx:u8][out_idx:u8]
+Inputs: param[a_idx] -> 16 contiguous f32 z-vectors
+        param[b_idx] -> 16 contiguous f32 z-vectors
+Output: param[out_idx] -> one contiguous 16x16 f32 tile
+Clobbers: z0-z3, p0, ZA0
+Preserves: z4-z31, ZT0
+Semantic: out[row,col] = sum_k a_panel[k,row] * b_panel[k,col]
+```
+
+### `matmul_partial_tile_f16_f32` (0x31)
+Computes one fp32 partial tile from two bound f16 8-vector panels.
+```
+Encoding: [0x31][a_idx:u8][b_idx:u8][out_idx:u8]
+Inputs: param[a_idx] -> 8 contiguous packed f16 z-vectors
+        param[b_idx] -> 8 contiguous packed f16 z-vectors
+Output: param[out_idx] -> one contiguous 16x16 f32 tile
+Clobbers: z0-z3, p0-p1, ZA0
+Preserves: z4-z31, ZT0
+Semantic: out[row,col] = sum_k a_panel[k,row] * b_panel[k,col]
+Layout: each source vector stores two K positions interleaved per row or column.
+```
+
+### `matmul_partial_tile_bf16_f32` (0x32)
+Computes one fp32 partial tile from two bound bf16 8-vector panels.
+```
+Encoding: [0x32][a_idx:u8][b_idx:u8][out_idx:u8]
+Inputs: param[a_idx] -> 8 contiguous packed bf16 z-vectors
+        param[b_idx] -> 8 contiguous packed bf16 z-vectors
+Output: param[out_idx] -> one contiguous 16x16 f32 tile
+Clobbers: z0-z3, p0-p1, ZA0
+Preserves: z4-z31, ZT0
+Semantic: out[row,col] = sum_k a_panel[k,row] * b_panel[k,col]
+Layout: each source vector stores two K positions interleaved per row or column.
+```
+
+### `reduce_tile_stack_f32` (0x29)
+Sums a stack of row-major 16x16 fp32 tiles elementwise into one tile.
+```
+Encoding: [0x29][src_idx:u8][out_idx:u8][tile_count:u8]
+Input: param[src_idx] -> tile_count contiguous 16x16 f32 tiles
+Output: param[out_idx] -> one contiguous 16x16 f32 tile
+Clobbers: z0, z4, p0
+Preserves: z1-z3, z5-z31, ZA, ZT0
+Semantic: out[row,col] = sum_t tile_stack[t,row,col]
+```
+
+### `load_scalar_param_f32` (0x2A)
+Loads one bound f32 scalar and broadcasts it into z0.
+```
+Encoding: [0x2A][idx:u8]
+Input: param[idx] -> one f32 scalar
+Clobbers: z0
+Preserves: z1-z31, ZA, ZT0
+```
+
+### `fexp_zreg` (0x2B)
+Vector exponential approximation.
+```
+Encoding: [0x2B][dst:u8][src:u8]
+Clobbers: z{dst}, z0-z6, z26-z31
+Preserves: ZA, ZT0
+```
+
+### `flog_zreg` (0x2C)
+Vector natural-log approximation for positive fp32 lanes.
+```
+Encoding: [0x2C][dst:u8][src:u8]
+Clobbers: z{dst}, z0-z4, z8-z14, z26-z31
+Preserves: ZA, ZT0
+```
+
+### `reduce_stream_sum_f32` (0x2D)
+Reduces each f32 vector window in a bound stream into one scalar output.
+```
+Encoding: [0x2D][src_idx:u8][out_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count contiguous f32 z-vectors
+Output: param[out_idx] -> chunk_count contiguous f32 scalars
+Clobbers: z0, p0
+Preserves: z1-z31, ZA, ZT0
+Semantic: out[i] = sum(src[i * VL + lane])
+```
+
+### `reduce_stream_max_f32` (0x2E)
+Reduces each f32 vector window in a bound stream into one max scalar output.
+```
+Encoding: [0x2E][src_idx:u8][out_idx:u8][chunk_count:u16]
+Input: param[src_idx] -> chunk_count contiguous f32 z-vectors
+Output: param[out_idx] -> chunk_count contiguous f32 scalars
+Clobbers: z0, p0
+Preserves: z1-z31, ZA, ZT0
+Semantic: out[i] = max(src[i * VL + lane])
+```
+
+### `store_scalar_param_f32` (0x2F)
+Stores the first f32 lane of z0 to a bound scalar pointer.
+```
+Encoding: [0x2F][idx:u8]
+Output: param[idx] -> one f32 scalar
+Clobbers: none
+Preserves: z0-z31, ZA, ZT0
+```
+
+### `matmul_lut_partial_tile_f32` (0x30)
+Computes one f32 partial tile from packed i4/i2 panels and f32 lookup tables.
+```
+Encoding: [0x30][a_idx:u8][b_idx:u8][a_table_idx:u8][b_table_idx:u8][out_idx:u8][bits:u8]
+Inputs: param[a_idx] -> packed i4/i2 16x16 logical panel
+        param[b_idx] -> packed i4/i2 16x16 logical panel
+        param[a_table_idx] -> f32 lookup table, 16 entries for i4 or 4 entries for i2
+        param[b_table_idx] -> f32 lookup table, 16 entries for i4 or 4 entries for i2
+Output: param[out_idx] -> one contiguous 16x16 f32 tile
+Clobbers: z0-z3, p0-p1, ZA0, ZT0
+Preserves: z4-z31
+Semantic: out[row,col] = sum_k table_a[a_panel[k,row]] * table_b[b_panel[k,col]]
+```
+
 ### `reduce_sum_fp32` (0x17)
 Horizontal sum of float32 array.
 ```
@@ -453,23 +679,6 @@ Preserves: z2-z31, ZA, ZT0
 
 ## Fused Transform Kernels
 
-### `dct2_forward_fp32` (0x28)
-H.264 4-point integer butterfly DCT-II forward.
-```
-Encoding: [0x28][dim:u32][src_ptr:u64][dst_ptr:u64]
-Clobbers: z0-z8
-Preserves: z9-z31, ZA, ZT0
-dim must be multiple of 4 (and multiple of SVLs for vectorization)
-```
-
-### `dct2_inverse_fp32` (0x29)
-Inverse of the above.
-```
-Encoding: [0x29][dim:u32][src_ptr:u64][dst_ptr:u64]
-Clobbers: z0-z8
-Preserves: z9-z31, ZA, ZT0
-```
-
 ### `transpose_fp32` (0x11)
 Transpose M x N float32 matrix.
 ```
@@ -489,48 +698,7 @@ Preserves: z8-z31, ZT0
 
 ---
 
-## Fused Threshold/Bitmap Kernels
-
-### `threshold_bitmap_fp32` (0x2A)
-Compare float32 > threshold, produce packed bitmap.
-```
-Encoding: [0x2A][dim:u32][threshold:f32][src_ptr:u64][bitmap_out:u64]
-Clobbers: z0-z1, z16-z17
-Preserves: z2-z15, z18-z31, ZA, ZT0
-```
-
-### `threshold_8bit` (0x2D)
-Reconstruct 8-bit counters from 8 bitplanes, threshold to bitmap.
-```
-Encoding: [0x2D][n_bytes:u32][threshold:u8][src_ptr:u64][bitmap_out:u64]
-Clobbers: scalar x-regs only (GP register bit manipulation)
-Preserves: z0-z31, ZA, ZT0
-```
-
-### `bitmap_score_pipeline` (0x33)
-Full pipeline: ripple-carry accumulate N bitmap streams, threshold, extract candidate IDs.
-```
-Encoding: [0x33][n_streams:u32][n_bytes:u32][n_vectors:u32][score_min:u32]
-         [max_candidates:u32][streams_ptr:u64][is_high_ptr:u64]
-         [candidates_out:u64][count_out:u64]
-Clobbers: z0-z7 (bitplane ripple carry), large stack frame
-Preserves: z8-z31, ZT0
-Note: ZA may be used internally
-```
-
----
-
 ## Fused Statistics/Quantization Kernels
-
-### `welford_stats_fp32` (0x2B)
-Online Welford mean/stddev/maxabs/scale across n_vectors of dim.
-```
-Encoding: [0x2B][n_vectors:u32][dim:u32][src_ptr:u64][stats_out:u64]
-Clobbers: z0-z7 (accumulation in f64), 48-byte stack frame
-Preserves: z8-z31, ZT0
-stats_out: 4 x dim doubles (mean, stddev, maxabs, scale)
-All accumulation in double precision
-```
 
 ### `quantize_fp32_i8` (0x19)
 Per-tensor symmetric quantize float32 to signed int8.
@@ -556,65 +724,12 @@ Clobbers: z0, z16 (scale broadcast)
 Preserves: z1-z15, z17-z31, ZA, ZT0
 ```
 
-### `quantize_pack_4bit_fp32` (0x2C)
-Quantize float32 to signed 4-bit SoA packed nibbles (dual source).
-```
-Encoding: [0x2C][n:u32][dim:u32][src_ptr:u64][stats_ptr:u64]
-         [raw_out:u64][dct_src:u64][dct_out:u64]
-Clobbers: scalar regs, 80-byte stack frame
-Preserves: z0-z31 (scalar processing), ZA, ZT0
-```
-
-### `quantize_accum_2bit` (0x2E)
-2-bit ternary decode, scale by bf16, accumulate into bf16.
-```
-Encoding: [0x2E][count:u32][packed_ptr:u64][scale_ptr:u64][accum_ptr:u64]
-Clobbers: z0-z5 (decode + arithmetic)
-Preserves: z6-z31, ZA, ZT0
-```
-
-### `accum_8bit` (0x2F)
-INT8 scale-accumulate: `accum[i] += data[i] * scale[i]` in bf16.
-```
-Encoding: [0x2F][count:u32][data_ptr:u64][scale_ptr:u64][accum_ptr:u64]
-Clobbers: z0-z6
-Preserves: z7-z31, ZA, ZT0
-```
-
 ### `pack_b_i8` (0x1B)
 Pack K x N row-major int8 into SMOPA panel format.
 ```
 Encoding: [0x1B][K:u32][N:u32][src_ptr:u64][dst_ptr:u64]
 Clobbers: z0-z3
 Preserves: z4-z31, ZA, ZT0
-```
-
----
-
-## Fused SoA Accumulator Kernels
-
-### `soa_sub_scale_bf16` (0x30)
-`accum[i] += bf16((src[i]*scale - scalar)^2)` for L2-like SoA distance.
-```
-Encoding: [0x30][count:u32][src_ptr:u64][scalar:f32][scale:f32][accum_ptr:u64]
-Clobbers: z0-z3, z16-z17
-Preserves: z4-z15, z18-z31, ZA, ZT0
-```
-
-### `soa_luti2_accum` (0x31)
-LUTI2 expand 2-bit indices via ZT0, accumulate into bf16.
-```
-Encoding: [0x31][count:u32][packed_ptr:u64][table_ptr:u64][accum_ptr:u64]
-Clobbers: z0-z5, ZT0
-Preserves: z6-z31, ZA
-```
-
-### `soa_luti4_accum` (0x32)
-LUTI4 expand 4-bit indices via ZT0, accumulate into bf16.
-```
-Encoding: [0x32][count:u32][packed_ptr:u64][table_ptr:u64][accum_ptr:u64]
-Clobbers: z0-z5, ZT0
-Preserves: z6-z31, ZA
 ```
 
 ---
@@ -1193,8 +1308,11 @@ Preserves: z0-z31, ZA, ZT0
 
 ## Future Gaps
 
-All opcodes 0x01-0x7F are implemented and accessible via the DSL compiler. The remaining gaps that could be added in future revisions:
+The remaining public gaps that could be added in future revisions:
 
-- `fsqrt_zreg` -- per-lane square root (currently only `frsqrt_zreg` reciprocal sqrt is available)
-- `fdiv_zreg` -- per-lane division (workaround: `frsqrt` + `fmul` for reciprocal patterns)
 - `f64` variants of register arithmetic -- double-precision `fadd_zreg`/`fsub_zreg`/`fmul_zreg`/`fmla_zreg`
+- Psyne scheduled reduction opcodes for min, multiply, row sums, column sums, and bias-gradient accumulation
+- Psyne f32 atomic math syntax for arbitrary clamp bounds, sigmoid, and tanh
+- Psyne f16/bf16 panel pack/reorder and low-bit quantized panel pack/reorder
+- Psyne layout syntax for strided tile load/store once the source language has shape/stride declarations
+- Psyne normalization partial opcodes for chunked mean, variance, and RMS accumulation

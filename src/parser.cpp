@@ -289,6 +289,7 @@ private:
         intrinsics_["dense_i8"]      = {Op::dense_i8,     {A::U32, A::U32, A::U32, A::F32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["dense_u8s8"]    = {Op::dense_u8s8,   {A::U32, A::U32, A::U32, A::F32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
         intrinsics_["dense_strided"] = {Op::dense_strided_fp32, {A::U32, A::U32, A::U32, A::F32, A::U8, A::PTR, A::PTR, A::PTR, A::PTR}};
+        intrinsics_["pack_panel_f32"] = {Op::pack_panel_f32, {A::U8, A::U8, A::U32, A::U8}};
         intrinsics_["count_matches"] = {Op::count_matches, {A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["reduce_sum"]    = {Op::reduce_sum_fp32, {A::U32, A::PTR, A::PTR}};
         intrinsics_["reduce_col_sum"] = {Op::reduce_col_sum_fp32, {A::U32, A::U32, A::U32, A::PTR, A::PTR}};
@@ -297,9 +298,6 @@ private:
         intrinsics_["dequantize_i8_fp32"]         = {Op::dequantize_i8_fp32, {A::U32, A::F32, A::PTR, A::PTR}};
         intrinsics_["pack_b_i8"]                  = {Op::pack_b_i8, {A::U32, A::U32, A::PTR, A::PTR}};
         intrinsics_["quantize_fp32_i8_channelwise"] = {Op::quantize_fp32_i8_channelwise, {A::U32, A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["quantize_pack_4bit"]         = {Op::quantize_pack_4bit_fp32, {A::U32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["quantize_accum_2bit"]        = {Op::quantize_accum_2bit, {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["accum_8bit"]                 = {Op::accum_8bit, {A::U32, A::PTR, A::PTR, A::PTR}};
         // ── Table lookup (fused kernel) ─────────────────────────────────────
         intrinsics_["luti2"]         = {Op::luti2_op, {A::U32, A::U8, A::PTR, A::PTR, A::PTR}};
         intrinsics_["luti4"]         = {Op::luti4_op, {A::U32, A::U8, A::PTR, A::PTR, A::PTR}};
@@ -314,18 +312,6 @@ private:
         intrinsics_["cosine_dist_bf16"]  = {Op::cosine_dist_bf16,  {A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["cosine_dist_f64"]   = {Op::cosine_dist_f64,   {A::U32, A::PTR, A::PTR, A::PTR}};
         intrinsics_["normalize"]         = {Op::normalize_fp32,     {A::U32, A::PTR}};
-        // ── DCT ─────────────────────────────────────────────────────────────
-        intrinsics_["dct2_forward"]  = {Op::dct2_forward_fp32, {A::U32, A::PTR, A::PTR}};
-        intrinsics_["dct2_inverse"]  = {Op::dct2_inverse_fp32, {A::U32, A::PTR, A::PTR}};
-        // ── Bitmap / threshold / stats ──────────────────────────────────────
-        intrinsics_["threshold_bitmap"] = {Op::threshold_bitmap_fp32, {A::U32, A::F32, A::PTR, A::PTR}};
-        intrinsics_["welford_stats"]    = {Op::welford_stats_fp32, {A::U32, A::U32, A::PTR, A::PTR}};
-        intrinsics_["threshold_8bit"]   = {Op::threshold_8bit, {A::U32, A::U8, A::PTR, A::PTR}};
-        // ── SoA quantized accumulation ──────────────────────────────────────
-        intrinsics_["soa_sub_scale_bf16"] = {Op::soa_sub_scale_bf16, {A::U32, A::PTR, A::F32, A::F32, A::PTR}};
-        intrinsics_["soa_luti2_accum"]    = {Op::soa_luti2_accum, {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["soa_luti4_accum"]    = {Op::soa_luti4_accum, {A::U32, A::PTR, A::PTR, A::PTR}};
-        intrinsics_["bitmap_score"]       = {Op::bitmap_score_pipeline, {A::U32, A::U32, A::U32, A::U32, A::U32, A::PTR, A::PTR, A::PTR, A::PTR}};
         // ── Register-level z-vector ops ─────────────────────────────────────
         intrinsics_["mov"]           = {Op::mov_zreg, {A::U8, A::U8}};
         intrinsics_["fmla"]          = {Op::fmla_zreg, {A::U8, A::U8, A::U8}};
@@ -338,6 +324,10 @@ private:
         intrinsics_["asr_z"]         = {Op::asr_zreg, {A::U8, A::U8, A::U8}};
         intrinsics_["faddv"]         = {Op::faddv_zreg, {A::U8, A::U8}};
         intrinsics_["frsqrt"]        = {Op::frsqrt_zreg, {A::U8, A::U8}};
+        intrinsics_["fabs"]          = {Op::fabs_zreg, {A::U8, A::U8}};
+        intrinsics_["fsqrt"]         = {Op::fsqrt_zreg, {A::U8, A::U8}};
+        intrinsics_["fdiv"]          = {Op::fdiv_zreg, {A::U8, A::U8, A::U8}};
+        intrinsics_["load_scalar_f16"] = {Op::load_scalar_param_f16, {A::U8}};
         intrinsics_["broadcast"]     = {Op::broadcast_scalar_zreg, {A::U8, A::F32}};
         intrinsics_["fscale"]        = {Op::fscale_zreg, {A::U8, A::U8, A::F32}};
         intrinsics_["fclamp"]        = {Op::fclamp_zreg, {A::U8, A::U8, A::U8, A::F32, A::F32}};

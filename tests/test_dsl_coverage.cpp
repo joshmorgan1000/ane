@@ -234,6 +234,50 @@ static void test_register_fp() {
     )");
     s2.exec({a, out});
     check("fclamp [2.0, 10.0]", out, ref, SVLs, 1e-5f);
+    for (int i = 0; i < SVLs; i++) {
+        a[i] = (float)i - 7.5f;
+        ref[i] = std::fabs(a[i]);
+    }
+    ane::script s3(R"(
+        load_raw(params[0]); mov(0, 5);
+        fabs(6, 5);
+        mov(6, 0); store_raw(params[1]);
+    )");
+    s3.exec({a, out});
+    check("fabs", out, ref, SVLs, 1e-5f);
+    for (int i = 0; i < SVLs; i++) {
+        a[i] = (float)(i + 1);
+        ref[i] = std::sqrt(a[i]);
+    }
+    ane::script s4(R"(
+        load_raw(params[0]); mov(0, 5);
+        fsqrt(6, 5);
+        mov(6, 0); store_raw(params[1]);
+    )");
+    s4.exec({a, out});
+    check("fsqrt", out, ref, SVLs, 1e-5f);
+    for (int i = 0; i < SVLs; i++) {
+        ref[i] = 1.0f / std::sqrt(a[i]);
+    }
+    ane::script s5(R"(
+        load_raw(params[0]); mov(0, 5);
+        frsqrt(6, 5);
+        mov(6, 0); store_raw(params[1]);
+    )");
+    s5.exec({a, out});
+    check("frsqrt", out, ref, SVLs, 1e-3f);
+    for (int i = 0; i < SVLs; i++) {
+        b[i] = 0.5f * (float)(i + 2);
+        ref[i] = a[i] / b[i];
+    }
+    ane::script s6(R"(
+        load_raw(params[0]); mov(0, 5);
+        load_raw(params[1]); mov(0, 6);
+        fdiv(7, 5, 6);
+        mov(7, 0); store_raw(params[2]);
+    )");
+    s6.exec({a, b, out});
+    check("fdiv", out, ref, SVLs, 1e-5f);
     std::free(a); std::free(b); std::free(out); std::free(ref);
 }
 /** ========================================================================= Tile MOPA Ops */
@@ -298,38 +342,6 @@ static void test_zt0_lookup() {
     check_pass("load_zt0 + luti2_zreg all-zero idx", ok);
     std::free(idx); std::free(out);
 }
-/** ========================================================================= DCT */
-static void test_dct() {
-    printf("\n── DCT Forward/Inverse (via DSL) ──\n");
-    const int dim = 64;  // must be multiple of 4 and SVLs
-    auto* src = static_cast<float*>(alloc(dim * 4));
-    auto* mid = static_cast<float*>(alloc(dim * 4));
-    auto* dst = static_cast<float*>(alloc(dim * 4));
-    for (int i = 0; i < dim; i++) src[i] = sinf((float)i * 0.1f);
-    ane::script sf(R"( dct2_forward(64, params[0], params[1]); )");
-    sf.exec({src, mid});
-    ane::script si(R"( dct2_inverse(64, params[0], params[1]); )");
-    si.exec({mid, dst});
-    // H.264 butterfly DCT has integer scaling factors, so roundtrip is approximate.
-    // Verify that output is in the right ballpark (same sign, similar magnitude).
-    float max_err = 0;
-    for (int i = 0; i < dim; i++) {
-        float err = std::fabs(dst[i] - src[i]);
-        if (err > max_err) max_err = err;
-    }
-    tests_total++;
-    // The H.264 4-point DCT forward/inverse pair doesn't perfectly roundtrip because
-    // it uses integer butterfly coefficients. Check that most values are close.
-    int close_count = 0;
-    for (int i = 0; i < dim; i++) if (std::fabs(dst[i] - src[i]) < 2.0f) close_count++;
-    if (close_count > dim / 2) {
-        printf("  [PASS] dct2 roundtrip dim=%d (%d/%d close, max_err=%.2f)\n", dim, close_count, dim, max_err);
-        tests_passed++;
-    } else {
-        printf("  [FAIL] dct2 roundtrip dim=%d (%d/%d close, max_err=%.2f)\n", dim, close_count, dim, max_err);
-    }
-    std::free(src); std::free(mid); std::free(dst);
-}
 /** ========================================================================= Quantization */
 static void test_quantization() {
     printf("\n── Quantization (via DSL) ──\n");
@@ -389,6 +401,45 @@ static void test_advance_stride() {
     check("advance_stride skip=128 bytes", out, ref, SVLs, 1e-5f);
     std::free(data); std::free(out);
 }
+/** ========================================================================= Panel Packing */
+static void test_pack_panel_f32() {
+    printf("\n── F32 Panel Packing (via DSL) ──\n");
+    const int stride = 20;
+    const int rows = 16;
+    const int cols = 16;
+    auto* src = static_cast<float*>(alloc(rows * stride * 4));
+    auto* panel = static_cast<float*>(alloc(rows * cols * 4));
+    auto* ref = static_cast<float*>(alloc(rows * cols * 4));
+    for (int row = 0; row < rows; row++) {
+        for (int col = 0; col < stride; col++) {
+            src[row * stride + col] = (float)(row * 100 + col);
+        }
+    }
+    ane::script pack_a(R"( pack_panel_f32(0, 1, 20, 0); )");
+    pack_a.exec({src, panel});
+    for (int k = 0; k < cols; k++) {
+        for (int row = 0; row < rows; row++) {
+            ref[k * rows + row] = src[row * stride + k];
+        }
+    }
+    check("pack_panel_f32 A transpose", panel, ref, rows * cols, 1e-5f);
+    for (int row = 0; row < rows; row++) {
+        for (int col = 0; col < stride; col++) {
+            src[row * stride + col] = (float)(10000 + row * 100 + col);
+        }
+    }
+    ane::script pack_b(R"( pack_panel_f32(0, 1, 20, 1); )");
+    pack_b.exec({src, panel});
+    for (int k = 0; k < rows; k++) {
+        for (int col = 0; col < cols; col++) {
+            ref[k * cols + col] = src[k * stride + col];
+        }
+    }
+    check("pack_panel_f32 B rows", panel, ref, rows * cols, 1e-5f);
+    std::free(src);
+    std::free(panel);
+    std::free(ref);
+}
 /** ========================================================================= Runtime U32 Params */
 static void test_runtime_u32() {
     printf("\n── Runtime U32 Params (via DSL) ──\n");
@@ -428,40 +479,6 @@ static void test_sgemm_dsl() {
     s1.exec({A, B, C});
     check("sgemm 32x32x16 via DSL", C, ref, M * N, 1e-3f);
     std::free(A); std::free(B); std::free(C); std::free(ref);
-}
-/** ========================================================================= Threshold/Stats */
-static void test_threshold() {
-    printf("\n── Threshold/Stats (via DSL) ──\n");
-    const int dim = 256;
-    auto* src = static_cast<float*>(alloc(dim * 4));
-    auto* bmp = static_cast<uint8_t*>(alloc(dim / 8 + 64));
-    for (int i = 0; i < dim; i++) src[i] = (float)(i - 128);
-    std::memset(bmp, 0, dim / 8 + 64);
-    ane::script s1(R"( threshold_bitmap(256, 0.0, params[0], params[1]); )");
-    s1.exec({src, bmp});
-    // Values 129-255 (indices 129+) should be > 0 → bits set
-    // Just verify some bits are set
-    int set_count = 0;
-    for (int i = 0; i < dim / 8; i++) for (int b = 0; b < 8; b++) if (bmp[i] & (1 << b)) set_count++;
-    check_pass("threshold_bitmap >0 has some bits set", set_count > 0);
-    std::free(src); std::free(bmp);
-}
-/** ========================================================================= Welford Stats */
-static void test_welford() {
-    printf("\n── Welford Stats (via DSL) ──\n");
-    const int n_vec = 4, dim = 64;
-    auto* src  = static_cast<float*>(alloc(n_vec * dim * 4));
-    auto* stats = static_cast<double*>(alloc(4 * dim * 8));
-    for (int v = 0; v < n_vec; v++)
-        for (int i = 0; i < dim; i++) src[v * dim + i] = (float)(v * dim + i) * 0.01f;
-    std::memset(stats, 0, 4 * dim * 8);
-    ane::script s1(R"( welford_stats(4, 64, params[0], params[1]); )");
-    s1.exec({src, stats});
-    // Just verify it runs and produces non-zero output
-    bool any_nonzero = false;
-    for (int i = 0; i < 4 * dim; i++) if (stats[i] != 0.0) any_nonzero = true;
-    check_pass("welford_stats produces output", any_nonzero);
-    std::free(src); std::free(stats);
 }
 /** ========================================================================= Dense FP32 via DSL */
 static void test_dense_fp32_dsl() {
@@ -554,13 +571,11 @@ int main() {
     test_register_fp();
     test_tile_mopa();
     test_zt0_lookup();
-    test_dct();
     test_quantization();
     test_advance_stride();
+    test_pack_panel_f32();
     test_runtime_u32();
     test_sgemm_dsl();
-    test_threshold();
-    test_welford();
     test_dense_fp32_dsl();
     test_prepared();
     printf("\n═══════════════════════════════\n  Results: %d / %d passed\n═══════════════════════════════\n\n",

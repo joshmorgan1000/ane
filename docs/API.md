@@ -280,7 +280,7 @@ softmax_partial(1024, params[0], params[1], params[2], params[3]);
 rms_norm(4096, 0.00001, params[0], params[1], params[2]);
 ```
 
-Available intrinsics: `sgemm`, `bfgemm`, `igemm`, `ugemm`, `usgemm`, `gemm_tile`, `softmax`, `softmax_partial`, `softmax_correct`, `reduce_sum_sq`, `reduce_col_sum`, `rms_norm`, `layer_norm`, `silu`, `silu_backward`, `gelu`, `softmax_backward`, `rope`, `causal_mask`, `adam_step`, `q8_0_gemv`, `q4_0_gemv`, `elementwise_add`, `elementwise_mul`, `reduce_sum`.
+Available intrinsics: `sgemm`, `bfgemm`, `igemm`, `ugemm`, `usgemm`, `gemm_tile`, `softmax`, `softmax_partial`, `softmax_correct`, `reduce_sum_sq`, `reduce_col_sum`, `rms_norm`, `layer_norm`, `silu`, `silu_backward`, `gelu`, `softmax_backward`, `rope`, `causal_mask`, `adam_step`, `q8_0_gemv`, `q4_0_gemv`, `elementwise_add`, `elementwise_mul`, `reduce_sum`, `fabs`, `fsqrt`, `frsqrt`, `fdiv`, `load_scalar_f16`, `pack_panel_f32`.
 
 Arguments are integer literals, float literals (`1.0`, `0.5f`), or `params[N]` references. Negative floats are written as `-1.0`. See the Instruction Catalog below for the parameter order of each operation.
 
@@ -297,10 +297,12 @@ When using the DSL, you don't need most of these directly — the compiler gener
 | Instruction | Parameters | What it does | Overwrites |
 |-------------|-----------|--------------|------------|
 | `set_param` | `idx:u8`, `ptr:u64` | Store a memory address in data pointer slot idx (0-7) | nothing |
-| `load_param` | `idx:u8` | Read 16 values from data pointer idx into v0 | v0 |
-| `store_param` | `idx:u8` | Write v0 to data pointer idx | nothing |
+| `load_param` | `idx:u8` | Read one 64-byte vector window from data pointer idx into v0 | v0 |
+| `load_scalar_param_f32` | `idx:u8` | Read one f32 from data pointer idx and broadcast into v0 | v0 |
+| `load_scalar_param_f16` | `idx:u8` | Read one f16 from data pointer idx and broadcast into v0.h | v0 |
+| `store_param` | `idx:u8` | Write one 64-byte vector window from v0 to data pointer idx | nothing |
 | `advance_param` | `idx:u8` | Advance data pointer idx by 64 bytes | nothing |
-| `load` | `ptr:u64` | Read 16 values from a fixed address into v0 | v0 |
+| `load` | `ptr:u64` | Read one 64-byte vector window from a fixed address into v0 | v0 |
 | `store` | `ptr:u64` | Write v0 to a fixed address | nothing |
 | `mov_zreg` | `src:u8`, `dst:u8` | Copy variable src to variable dst | dst only |
 
@@ -319,6 +321,23 @@ When using the DSL, you don't need most of these directly — the compiler gener
 | `fsub_zreg` | `dst:u8`, `src1:u8`, `src2:u8` | dst = src1 - src2 | dst, v0-v1 |
 | `fmul_zreg` | `dst:u8`, `src1:u8`, `src2:u8` | dst = src1 × src2 | dst, v0-v1 |
 | `fmla_zreg` | `dst:u8`, `src1:u8`, `src2:u8` | dst += src1 × src2 | dst, v0-v2 |
+| `fexp_zreg` | `dst:u8`, `src:u8` | dst = exp(src) | dst, v0-v6, v26-v31 |
+| `flog_zreg` | `dst:u8`, `src:u8` | dst = log(src) | dst, v0-v4, v8-v14, v26-v31 |
+| `fabs_zreg` | `dst:u8`, `src:u8` | dst = abs(src) | dst, v0 |
+| `fsqrt_zreg` | `dst:u8`, `src:u8` | dst = sqrt(src) | dst, v0 |
+| `frsqrt_zreg` | `dst:u8`, `src:u8` | dst = 1 / sqrt(src) | dst, v0-v2 |
+| `fdiv_zreg` | `dst:u8`, `src1:u8`, `src2:u8` | dst = src1 / src2 | dst, v0-v1 |
+| `reduce_stream_sum_f32` | `src_idx:u8`, `out_idx:u8`, `chunk_count:u16` | Sum each f32 vector window into one scalar | v0 |
+| `reduce_stream_max_f32` | `src_idx:u8`, `out_idx:u8`, `chunk_count:u16` | Max each f32 vector window into one scalar | v0 |
+| `store_scalar_param_f32` | `idx:u8` | Store lane 0 of v0 to one f32 scalar pointer | nothing |
+
+### Float16 Arithmetic (register-addressed)
+
+| Instruction | Parameters | What it does | Overwrites |
+|-------------|-----------|--------------|------------|
+| `fadd_zreg_f16` | `dst:u8`, `src1:u8`, `src2:u8` | dst.h = src1.h + src2.h | dst, v0-v1 |
+| `fsub_zreg_f16` | `dst:u8`, `src1:u8`, `src2:u8` | dst.h = src1.h - src2.h | dst, v0-v1 |
+| `fmul_zreg_f16` | `dst:u8`, `src1:u8`, `src2:u8` | dst.h = src1.h × src2.h | dst, v0-v1 |
 
 ### Bitwise (register-addressed)
 
@@ -352,6 +371,132 @@ When using the DSL, you don't need most of these directly — the compiler gener
 | `umopa_zreg` | `tile:u8`, `src1:u8`, `src2:u8` | Unsigned int8 outer product | v0-v1, tile |
 | `usmopa_zreg` | `tile:u8`, `src1:u8`, `src2:u8` | Unsigned × signed outer product | v0-v1, tile |
 | `fmopa_zreg` | `tile:u8`, `src1:u8`, `src2:u8` | Float32 outer product | v0-v1, tile |
+| `matmul_partial_tile_f32` | `a_idx:u8`, `b_idx:u8`, `out_idx:u8` | 16 f32 vector-pair panel product into one 16×16 tile | v0-v3, za0 |
+| `matmul_partial_tile_f16_f32` | `a_idx:u8`, `b_idx:u8`, `out_idx:u8` | 8 f16 vector-pair panel product into one f32 16×16 tile | v0-v3, za0 |
+| `matmul_partial_tile_bf16_f32` | `a_idx:u8`, `b_idx:u8`, `out_idx:u8` | 8 bf16 vector-pair panel product into one f32 16×16 tile | v0-v3, za0 |
+| `matmul_lut_partial_tile_f32` | `a_idx:u8`, `b_idx:u8`, `a_table_idx:u8`, `b_table_idx:u8`, `out_idx:u8`, `bits:u8` | Packed i4/i2 LUT decode plus FMOPA into one f32 16×16 tile | v0-v3, za0, lookup table |
+| `pack_panel_f32` | `src_idx:u8`, `dst_idx:u8`, `row_stride:u32`, `flags:u8` | Pack one f32 16×16 source tile into FMOPA panel layout | v0-v3, za2 |
+| `reduce_tile_stack_f32` | `src_idx:u8`, `out_idx:u8`, `tile_count:u8` | Sum stacked 16×16 f32 tiles into one tile | v0, v4 |
+| `convert_f32_f16` | `src_idx:u8`, `dst_idx:u8`, `chunk_count:u16` | Convert 32-element f32 windows to f16 windows | v0-v1 |
+| `convert_f16_f32` | *(same)* | Convert 32-element f16 windows to f32 windows | v0-v1 |
+| `convert_f32_bf16` | *(same)* | Convert 32-element f32 windows to bf16 windows | v0-v1 |
+| `convert_bf16_f32` | *(same)* | Convert 32-element bf16 windows to f32 windows | v0-v1 |
+
+### Psyne Element Primitives
+
+Psyne v1 keeps one operation per statement. `#` operators are elementwise, plain
+`*` is reserved for vector-panel matrix/tile multiplication, and scalar declarations
+broadcast when used with stream element operations. Plain assignment between
+compatible `f32`, `f16`, and `bf16` streams lowers to a stream conversion opcode.
+Executable f16 lowering currently supports stream/scalar `#+`, `#-`, and `#*`;
+f32 lowering supports scalar broadcast, `#/`, and the unary atoms shown below.
+
+```
+half = input_f32;
+roundtrip = half;
+bfloat = input_f32;
+roundtrip_bf = bfloat;
+output = left #+ right;
+output = left #- right;
+output = left #* right;
+output = left #/ right;
+output = input #+ bias;
+output = input #* scale;
+output = bias #- input;
+output = exp input;
+output = log input;
+output = pow input exponent;
+output = abs input;
+output = sqrt input;
+output = rsqrt input;
+output = square input;
+output = relu input;
+```
+
+`pow`, `square`, and `relu` lower as compositions of primitive vector ops where
+that is already optimal enough for the public primitive layer.
+
+### Psyne Scheduled Reductions
+
+Ordinary stream reductions produce one scalar per source vector window. That keeps
+the caller in control of the reduction tree instead of forcing one global pass.
+Tile-shaped `<+` remains the special partial-tile GEMM reducer.
+
+```
+partials <+ input;       // f32[16v] -> f32[16]
+maxima <max logits;      // f32[16v] -> f32[16]
+total <+ partials;       // f32[16] -> f32 scalar
+global_max <max maxima;  // f32[16] -> f32 scalar
+log_total = log total;   // f32 scalar -> f32 scalar
+```
+
+### Psyne Partial-Tile Matmul
+
+Psyne can express a larger GEMM as two small programs: one program computes a
+16x16 partial tile, and the second program reduces a stack of partial tiles into
+the final output tile. `f32` panels use `f32[16v]` sources. `f16` and `bf16`
+panels use `f16[8v]` or `bf16[8v]` sources because widening MOPA consumes two
+K elements per half-precision vector lane pair. All three forms accumulate into
+an `f32[1t]` output tile. The caller owns the outer M/N/K loops and binds
+declaration-order pointers on each execution.
+
+```cpp
+constexpr uint32_t VL = 16;
+constexpr uint32_t TileElements = VL * VL;
+constexpr uint32_t M = VL * 2;
+constexpr uint32_t N = VL * 2;
+constexpr uint32_t K = VL * VL;
+constexpr uint32_t KChunks = K / VL;
+auto plan = ane::psyne::make_matmul_tile_f32_plan(KChunks);
+ane::psyne::executable chunk_program(plan.chunk_source);
+ane::psyne::executable reduction_program(plan.reduction_source);
+for (uint32_t tile_row = 0; tile_row < M; tile_row += VL) {
+    for (uint32_t tile_col = 0; tile_col < N; tile_col += VL) {
+        for (uint32_t chunk = 0; chunk < KChunks; chunk++) {
+            for (uint32_t kk = 0; kk < VL; kk++) {
+                const uint32_t k = chunk * VL + kk;
+                for (uint32_t row = 0; row < VL; row++) {
+                    a_panel[kk * VL + row] = A[(tile_row + row) * K + k];
+                }
+                for (uint32_t col = 0; col < VL; col++) {
+                    b_panel[kk * VL + col] = B[k * N + tile_col + col];
+                }
+            }
+            chunk_program.exec({a_panel, b_panel, partial_tiles + chunk * TileElements});
+        }
+        reduction_program.exec({partial_tiles, output_tile});
+        for (uint32_t row = 0; row < VL; row++) {
+            for (uint32_t col = 0; col < VL; col++) {
+                C[(tile_row + row) * N + tile_col + col] = output_tile[row * VL + col];
+            }
+        }
+    }
+}
+```
+
+### Psyne Quantized Matmul
+
+Packed low-bit streams bind to ordinary read-only lookup table buffers. The user
+declares the table and the packed stream; Psyne selects the LUT decode path when
+`*` sees two compatible packed panels. `i4` tables have 16 entries, and `i2`
+tables have 4 entries.
+
+```
+q4: f32[16] ro;
+a_panel: i4[256] table q4 ro;
+b_panel: i4[256] table q4 ro;
+partial_tile: f32[1t] wo;
+partial_tile = a_panel * b_panel;
+
+q2: f32[4] ro;
+a2_panel: i2[256] table q2 ro;
+b2_panel: i2[256] table q2 ro;
+partial2_tile: f32[1t] wo;
+partial2_tile = a2_panel * b2_panel;
+```
+
+The compiler treats this as quantized matmul, not as user-authored LUTI calls.
+The executable hot path lowers to one fused LUTI plus FMOPA partial-tile opcode.
 
 ### BLAS Matrix Multiply
 
@@ -502,7 +647,6 @@ flags: 3 = clamp(lo..hi), 1 = max(x, lo) (ReLU when lo=0), 2 = min(x, hi).
 | `broadcast_scalar_zreg` | `dst:u8`, `value:f32` | Fill all 16 lanes of dst with value | dst |
 | `fscale_zreg` | `dst:u8`, `src:u8`, `scalar:f32` | dst = src × scalar | dst, v0 |
 | `faddv_zreg` | `dst:u8`, `src:u8` | Horizontal sum: dst = broadcast(sum(src)) | dst |
-| `frsqrt_zreg` | `dst:u8`, `src:u8` | dst[i] = 1/sqrt(src[i]) | dst, v0 |
 
 ### Transformer Kernels
 
@@ -640,6 +784,7 @@ These process entire arrays from memory with internal loops — no `loop_begin`/
 | `elementwise_add_fp32` | `count:u32`, `a:u64`, `b:u64`, `out:u64` | out[i] = a[i] + b[i] | v0-v1 |
 | `elementwise_scaled_add_fp32` | `count:u32`, `scale:f32`, `a:u64`, `b:u64`, `out:u64` | out[i] = a[i] + scale×b[i] | v0-v1, v16 |
 | `elementwise_mul_fp32` | `count:u32`, `a:u64`, `b:u64`, `out:u64` | out[i] = a[i] × b[i] | v0-v1 |
+| `elementwise_sub_fp32` | `count:u32`, `a:u64`, `b:u64`, `out:u64` | out[i] = a[i] - b[i] | v0-v1 |
 | `relu_backward_fp32` | `count:u32`, `act:u64`, `grad:u64`, `out:u64` | out[i] = (act[i]>0) ? grad[i] : 0 | v0-v2, v17 |
 | `l2_squared_fp32` | `dim:u32`, `a:u64`, `b:u64`, `out:u64` | out = sum((a[i]-b[i])²) | v0-v1, v4 |
 | `l2_squared_bf16` | `dim:u32`, `a:u64`, `b:u64`, `out:u64` | (bfloat16 inputs, float32 result) | v0-v7 |
@@ -686,8 +831,6 @@ reduce_col_sum(256, 128, 512, params[0], params[1]);
 
 | Instruction | Parameters | What it does | Overwrites |
 |-------------|-----------|--------------|------------|
-| `dct2_forward_fp32` | `dim:u32`, `src:u64`, `dst:u64` | H.264 DCT-II forward (groups of 4) | v0-v8 |
-| `dct2_inverse_fp32` | `dim:u32`, `src:u64`, `dst:u64` | DCT-II inverse | v0-v8 |
 | `transpose_fp32` | `M:u32`, `N:u32`, `src:u64`, `dst:u64` | Transpose M×N matrix | minimal |
 | `transpose_i8` | `M:u32`, `N:u32`, `src:u64`, `dst:u64` | Transpose M×N int8 matrix | v0-v7, scratchpad |
 
@@ -699,26 +842,6 @@ reduce_col_sum(256, 128, 512, params[0], params[1]);
 | `quantize_fp32_i8_channelwise` | `M:u32`, `N:u32`, `src:u64`, `dst:u64`, `scales:u64` | Per-row float→int8 | v0, v16-v19 |
 | `dequantize_i8_fp32` | `count:u32`, `scale:f32`, `src:u64`, `dst:u64` | Int8→float | v0, v16 |
 | `pack_b_i8` | `K:u32`, `N:u32`, `src:u64`, `dst:u64` | Repack int8 for `dense_i8` | v0-v3 |
-| `welford_stats_fp32` | `n_vecs:u32`, `dim:u32`, `src:u64`, `stats:u64` | Mean/stddev/maxabs/scale (double precision) | v0-v7 |
-| `quantize_pack_4bit_fp32` | `n:u32`, `dim:u32`, `src:u64`, `stats:u64`, `raw_out:u64`, `dct_src:u64`, `dct_out:u64` | Float→4-bit packed SoA (dual) | minimal |
-| `quantize_accum_2bit` | `count:u32`, `packed:u64`, `scale:u64`, `accum:u64` | 2-bit ternary decode + bf16 accumulate | v0-v5 |
-| `accum_8bit` | `count:u32`, `data:u64`, `scale:u64`, `accum:u64` | Int8 × bf16 scale → bf16 accumulate | v0-v6 |
-
-### Threshold & Bitmap
-
-| Instruction | Parameters | What it does | Overwrites |
-|-------------|-----------|--------------|------------|
-| `threshold_bitmap_fp32` | `dim:u32`, `threshold:f32`, `src:u64`, `bitmap:u64` | Float > threshold → packed bits | v0-v1, v16-v17 |
-| `threshold_8bit` | `n_bytes:u32`, `threshold:u8`, `src:u64`, `bitmap:u64` | 8-bitplane counter → threshold → bits | minimal |
-| `bitmap_score_pipeline` | `n_streams:u32`, `n_bytes:u32`, `n_vecs:u32`, `score_min:u32`, `max_cand:u32`, `streams:u64`, `flags:u64`, `cand_out:u64`, `count_out:u64` | Full bitmap accumulate→threshold→extract | v0-v7 |
-
-### SoA Distance
-
-| Instruction | Parameters | What it does | Overwrites |
-|-------------|-----------|--------------|------------|
-| `soa_sub_scale_bf16` | `count:u32`, `src:u64`, `scalar:f32`, `scale:f32`, `accum:u64` | accum += bf16((src×scale - scalar)²) | v0-v3, v16-v17 |
-| `soa_luti2_accum` | `count:u32`, `packed:u64`, `table:u64`, `accum:u64` | LUTI2 expand + bf16 accumulate | v0-v5, lookup table |
-| `soa_luti4_accum` | `count:u32`, `packed:u64`, `table:u64`, `accum:u64` | LUTI4 expand + bf16 accumulate | v0-v5, lookup table |
 
 ### Classification
 

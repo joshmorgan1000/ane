@@ -85,18 +85,18 @@ enum class Op : uint8_t {
     cosine_dist_bf16             = 0x25,  ///< Cosine distance bf16 inputs, fp32 accum
     cosine_dist_f64              = 0x26,  ///< Cosine distance f64
     normalize_fp32               = 0x27,  ///< In-place unit normalize fp32 vector
-    dct2_forward_fp32            = 0x28,  ///< H.264 4-point integer butterfly DCT-II forward, groups of 4 fp32
-    dct2_inverse_fp32            = 0x29,  ///< H.264 4-point integer butterfly DCT-II inverse, groups of 4 fp32
-    threshold_bitmap_fp32        = 0x2A,  ///< Compare fp32 > threshold, produce packed bit output
-    welford_stats_fp32           = 0x2B,  ///< Online Welford mean/stddev/maxabs/scale across n_vectors of dim fp32
-    quantize_pack_4bit_fp32      = 0x2C,  ///< Quantize fp32 to signed 4-bit SoA packed nibbles (dual src)
-    threshold_8bit               = 0x2D,  ///< Reconstruct 8-bit counters from bitplanes, threshold to bitmap
-    quantize_accum_2bit          = 0x2E,  ///< 2-bit ternary {-1,0,+1} decode, scale by bf16, accumulate bf16
-    accum_8bit                   = 0x2F,  ///< INT8 scale-accumulate: accum[i] += data[i] * scale[i] in bf16
-    soa_sub_scale_bf16           = 0x30,  ///< SoA quantized L2 partial: accum[i] += bf16((src[i]*scale-scalar)^2)
-    soa_luti2_accum              = 0x31,  ///< LUTI2 expand 2-bit indices via ZT0, accumulate into bf16
-    soa_luti4_accum              = 0x32,  ///< LUTI4 expand 4-bit indices via ZT0, accumulate into bf16
-    bitmap_score_pipeline        = 0x33,  ///< Ripple-carry bitmap accumulate, threshold, extract candidate IDs
+    matmul_partial_tile_f32      = 0x28,  ///< f32 16-vector panels -> one 16x16 partial tile
+    reduce_tile_stack_f32        = 0x29,  ///< Sum 16 stacked f32 tiles elementwise into one tile
+    load_scalar_param_f32        = 0x2A,  ///< Load *param[idx] and broadcast to z0
+    fexp_zreg                    = 0x2B,  ///< z{dst}.s = exp(z{src}.s), polynomial approximation
+    flog_zreg                    = 0x2C,  ///< z{dst}.s = log(z{src}.s), polynomial approximation
+    reduce_stream_sum_f32        = 0x2D,  ///< Sum each f32 vector window into one f32 output scalar
+    reduce_stream_max_f32        = 0x2E,  ///< Max each f32 vector window into one f32 output scalar
+    store_scalar_param_f32       = 0x2F,  ///< Store lane 0 of z0.s to *param[idx]
+    matmul_lut_partial_tile_f32  = 0x30,  ///< i4/i2 LUT-decoded panels -> one f32 16x16 partial tile
+    matmul_partial_tile_f16_f32  = 0x31,  ///< f16 8-vector panels -> one f32 16x16 partial tile
+    matmul_partial_tile_bf16_f32 = 0x32,  ///< bf16 8-vector panels -> one f32 16x16 partial tile
+    reserved_0x33                = 0x33,  ///< Reserved
     mov_zreg                     = 0x34,  ///< Move z{src} to z{dst}, [src:u8][dst:u8]
     loop_begin                   = 0x35,  ///< Set loop counter, [count:u8] (max 255 iterations)
     loop_end                     = 0x36,  ///< Decrement counter, jump back by [offset:u16] bytes
@@ -173,7 +173,19 @@ enum class Op : uint8_t {
     get_rows_q4_0                = 0x7D,  ///< Embedding lookup + dequant from Q4_0 table
     dense_strided_fp32           = 0x7E,  ///< Fused matmul+bias+ReLU with explicit strides (lda, ldb, ldc)
     advance_param_stride         = 0x7F,  ///< Advance param[idx] by stride bytes, [idx:u8][stride:u32]
-    NUM_OPCODES                  = 0x80,
+    fadd_zreg_f16                = 0x80,  ///< z{dst}.h = z{src1}.h + z{src2}.h, [dst:u8][src1:u8][src2:u8]
+    fsub_zreg_f16                = 0x81,  ///< z{dst}.h = z{src1}.h - z{src2}.h, [dst:u8][src1:u8][src2:u8]
+    fmul_zreg_f16                = 0x82,  ///< z{dst}.h = z{src1}.h * z{src2}.h, [dst:u8][src1:u8][src2:u8]
+    convert_f32_f16              = 0x83,  ///< Convert f32 stream windows to f16, [src_idx:u8][dst_idx:u8][chunk_count:u16]
+    convert_f16_f32              = 0x84,  ///< Convert f16 stream windows to f32, [src_idx:u8][dst_idx:u8][chunk_count:u16]
+    convert_f32_bf16             = 0x85,  ///< Convert f32 stream windows to bf16, [src_idx:u8][dst_idx:u8][chunk_count:u16]
+    convert_bf16_f32             = 0x86,  ///< Convert bf16 stream windows to f32, [src_idx:u8][dst_idx:u8][chunk_count:u16]
+    fabs_zreg                    = 0x87,  ///< z{dst}.s = abs(z{src}.s), [dst:u8][src:u8]
+    fsqrt_zreg                   = 0x88,  ///< z{dst}.s = sqrt(z{src}.s), [dst:u8][src:u8]
+    fdiv_zreg                    = 0x89,  ///< z{dst}.s = z{src1}.s / z{src2}.s, [dst:u8][src1:u8][src2:u8]
+    load_scalar_param_f16        = 0x8A,  ///< Load *param[idx] and broadcast to z0.h, [idx:u8]
+    pack_panel_f32               = 0x8B,  ///< Pack one f32 16x16 source tile into FMOPA panel layout
+    NUM_OPCODES                  = 0x8C,
 };
 /** --------------------------------------------------------------------------------------------------------- IsZVector / IsZStream helpers
  * @brief Type trait helpers to detect z_vector<T> and z_stream<T> without requiring T::value_type
@@ -225,11 +237,15 @@ inline void dispatch(Op op, Args... args) {
  *  - Call exec() to execute the entire program in one smstart/smstop pair.
  *  - Z-registers and ZA tiles persist across opcodes within the same program.
  */
+namespace psyne {
+class executable;
+} // namespace psyne
 class Compiler;  // Forward declaration — defined in parser.cpp
 class program {
     friend class Compiler;  ///< DSL compiler needs raw emit/patch access
     friend class script;    ///< script::exec() needs patch/append access
     friend class prepared;  ///< prepared::exec() needs patch access
+    friend class psyne::executable;  ///< Psyne executable patches pre-bound pointer slots
 private:
     std::vector<uint8_t> bytecodes_;  ///< Accumulated bytecode buffer
     std::vector<size_t> loop_marks_;  ///< Stack of loop body start offsets for begin_loop/end_loop

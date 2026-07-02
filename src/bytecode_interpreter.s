@@ -80,18 +80,18 @@ _stream_exec:
     .long   .L_op_cosine_dist_bf16 - .L_jump_table  // 0x25 cosine_dist_bf16
     .long   .L_op_cosine_dist_f64 - .L_jump_table   // 0x26 cosine_dist_f64
     .long   .L_op_normalize_fp32 - .L_jump_table    // 0x27 normalize_fp32
-    .long   .L_op_dct2_forward_fp32 - .L_jump_table // 0x28 dct2_forward_fp32
-    .long   .L_op_dct2_inverse_fp32 - .L_jump_table // 0x29 dct2_inverse_fp32
-    .long   .L_op_threshold_bitmap_fp32 - .L_jump_table // 0x2A threshold_bitmap_fp32
-    .long   .L_op_welford_stats_fp32 - .L_jump_table   // 0x2B welford_stats_fp32
-    .long   .L_op_quantize_pack_4bit_fp32 - .L_jump_table // 0x2C quantize_pack_4bit_fp32
-    .long   .L_op_threshold_8bit - .L_jump_table        // 0x2D threshold_8bit
-    .long   .L_op_quantize_accum_2bit - .L_jump_table  // 0x2E quantize_accum_2bit
-    .long   .L_op_accum_8bit - .L_jump_table           // 0x2F accum_8bit
-    .long   .L_op_soa_sub_scale_bf16 - .L_jump_table  // 0x30 soa_sub_scale_bf16
-    .long   .L_op_soa_luti2_accum - .L_jump_table     // 0x31 soa_luti2_accum
-    .long   .L_op_soa_luti4_accum - .L_jump_table     // 0x32 soa_luti4_accum
-    .long   .L_op_bitmap_score_pipeline - .L_jump_table // 0x33 bitmap_score_pipeline
+    .long   .L_op_matmul_partial_tile_f32 - .L_jump_table // 0x28 matmul_partial_tile_f32
+    .long   .L_op_reduce_tile_stack_f32 - .L_jump_table // 0x29 reduce_tile_stack_f32
+    .long   .L_op_load_scalar_param_f32 - .L_jump_table // 0x2A load_scalar_param_f32
+    .long   .L_op_fexp_zreg - .L_jump_table     // 0x2B fexp_zreg
+    .long   .L_op_flog_zreg - .L_jump_table     // 0x2C flog_zreg
+    .long   .L_op_reduce_stream_sum_f32 - .L_jump_table // 0x2D reduce_stream_sum_f32
+    .long   .L_op_reduce_stream_max_f32 - .L_jump_table // 0x2E reduce_stream_max_f32
+    .long   .L_op_store_scalar_param_f32 - .L_jump_table // 0x2F store_scalar_param_f32
+    .long   .L_op_matmul_lut_partial_tile_f32 - .L_jump_table // 0x30 matmul_lut_partial_tile_f32
+    .long   .L_op_matmul_partial_tile_f16_f32 - .L_jump_table // 0x31 matmul_partial_tile_f16_f32
+    .long   .L_op_matmul_partial_tile_bf16_f32 - .L_jump_table // 0x32 matmul_partial_tile_bf16_f32
+    .long   .L_op_reserved - .L_jump_table      // 0x33 reserved
     .long   .L_op_mov_zreg - .L_jump_table         // 0x34 mov_zreg
     .long   .L_op_loop_begin - .L_jump_table      // 0x35 loop_begin
     .long   .L_op_loop_end - .L_jump_table        // 0x36 loop_end
@@ -168,6 +168,18 @@ _stream_exec:
     .long   .L_op_get_rows_q4_0 - .L_jump_table       // 0x7D get_rows_q4_0
     .long   .L_op_dense_strided_fp32 - .L_jump_table  // 0x7E dense_strided_fp32
     .long   .L_op_advance_param_stride - .L_jump_table // 0x7F advance_param_stride
+    .long   .L_op_fadd_zreg_f16 - .L_jump_table       // 0x80 fadd_zreg_f16
+    .long   .L_op_fsub_zreg_f16 - .L_jump_table       // 0x81 fsub_zreg_f16
+    .long   .L_op_fmul_zreg_f16 - .L_jump_table       // 0x82 fmul_zreg_f16
+    .long   .L_op_convert_f32_f16 - .L_jump_table     // 0x83 convert_f32_f16
+    .long   .L_op_convert_f16_f32 - .L_jump_table     // 0x84 convert_f16_f32
+    .long   .L_op_convert_f32_bf16 - .L_jump_table    // 0x85 convert_f32_bf16
+    .long   .L_op_convert_bf16_f32 - .L_jump_table    // 0x86 convert_bf16_f32
+    .long   .L_op_fabs_zreg - .L_jump_table           // 0x87 fabs_zreg
+    .long   .L_op_fsqrt_zreg - .L_jump_table          // 0x88 fsqrt_zreg
+    .long   .L_op_fdiv_zreg - .L_jump_table           // 0x89 fdiv_zreg
+    .long   .L_op_load_scalar_param_f16 - .L_jump_table // 0x8A load_scalar_param_f16
+    .long   .L_op_pack_panel_f32 - .L_jump_table      // 0x8B pack_panel_f32
 // ================================================================
 // EXIT — reached end of bytecodes
 // ================================================================
@@ -3604,1226 +3616,427 @@ _stream_exec:
     cbnz    w22, .L_nrm_pass2
     b       .L_dispatch
 // ================================================================
-// DCT2_FORWARD_FP32 (0x28)
-// H.264 4-point integer butterfly DCT-II forward transform on
-// groups of 4 float32 values. Converts fp32→int32, applies
-// butterfly, converts int32→fp32.
-// Encoding: [0x28][dim:u32][src_ptr:u64][dst_ptr:u64]
-// dim = number of float32 elements (multiple of 4 and SVLs)
-// Butterfly per group [x0,x1,x2,x3]:
-//   s0=x0+x3  s1=x1+x2  d0=x0-x3  d1=x1-x2
-//   out0=s0+s1  out1=d0+(d1>>1)  out2=s0-s1  out3=(d0>>1)-d1
-// Uses LD4W/ST4W to deinterleave/interleave group positions,
-// processing SVLs groups (16 on M4, = 64 elements) per iteration.
+// MATMUL_PARTIAL_TILE_F32 (0x28)
+// Encoding: [0x28][a_idx:u8][b_idx:u8][out_idx:u8]
+// Computes one 16x16 f32 tile from 16 f32 z-vector pairs:
+//   out[row][col] = sum_k a_panel[k][row] * b_panel[k][col]
 // ================================================================
-.L_op_dct2_forward_fp32:
-    ldr     w22, [x19]             // dim (element count)
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // src_ptr
-    ldr     x11, [x19], #8        // dst_ptr
-    cbz     w22, .L_dispatch
+.L_op_matmul_partial_tile_f32:
+    ldrb    w9, [x19], #1          // a param index
+    ldrb    w10, [x19], #1         // b param index
+    ldrb    w11, [x19], #1         // out param index
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // a_panel
+    ldr     x9, [x12, x10, lsl #3] // b_panel
+    ldr     x10, [x12, x11, lsl #3] // partial_tile
     ptrue   p0.s
-    lsr     x23, x22, #2          // num_groups = dim / 4
-    mov     x10, #0               // group index
-    cntw    x9                    // groups per full iteration (SVLs = 16)
-    whilelt p1.s, x10, x23
-.L_dctf_loop:
-    // ── Deinterleave: z0=pos0, z1=pos1, z2=pos2, z3=pos3 of each group ──
-    ld4w    {z0.s-z3.s}, p1/z, [x8]
-    // ── Convert fp32 → int32 for integer butterfly ──
-    fcvtzs  z0.s, p0/m, z0.s
-    fcvtzs  z1.s, p0/m, z1.s
-    fcvtzs  z2.s, p0/m, z2.s
-    fcvtzs  z3.s, p0/m, z3.s
-    // ── Sums and differences ──
-    add     z4.s, z0.s, z3.s      // s0 = x0 + x3
-    add     z5.s, z1.s, z2.s      // s1 = x1 + x2
-    sub     z6.s, z0.s, z3.s      // d0 = x0 - x3
-    sub     z7.s, z1.s, z2.s      // d1 = x1 - x2
-    // ── Butterfly outputs ──
-    add     z0.s, z4.s, z5.s      // out0 = s0 + s1
-    asr     z8.s, z7.s, #1        // d1 >> 1
-    add     z1.s, z6.s, z8.s      // out1 = d0 + (d1 >> 1)
-    sub     z2.s, z4.s, z5.s      // out2 = s0 - s1
-    asr     z8.s, z6.s, #1        // d0 >> 1
-    sub     z3.s, z8.s, z7.s      // out3 = (d0 >> 1) - d1
-    // ── Convert int32 → fp32 ──
-    scvtf   z0.s, p0/m, z0.s
-    scvtf   z1.s, p0/m, z1.s
-    scvtf   z2.s, p0/m, z2.s
-    scvtf   z3.s, p0/m, z3.s
-    // ── Interleave and store ──
-    st4w    {z0.s-z3.s}, p1, [x11]
-    // ── Advance pointers and loop ──
-    add     x8, x8, x9, lsl #4    // src += SVLs * 4 elems * 4 bytes = SVLs << 4
-    add     x11, x11, x9, lsl #4   // dst += SVLs * 4 elems * 4 bytes
-    add     x10, x10, x9          // group_index += SVLs
-    whilelt p1.s, x10, x23
-    b.first .L_dctf_loop
-    b       .L_dispatch
-// ================================================================
-// DCT2_INVERSE_FP32 (0x29)
-// H.264 4-point integer butterfly DCT-II inverse transform on
-// groups of 4 float32 values. Converts fp32→int32, applies
-// inverse butterfly, converts int32→fp32.
-// Encoding: [0x29][dim:u32][src_ptr:u64][dst_ptr:u64]
-// dim = number of float32 elements (multiple of 4 and SVLs)
-// Inverse butterfly per group [y0,y1,y2,y3]:
-//   s0=y0+y2  s1=y0-y2  d0=(y1>>1)-y3  d1=y1+(y3>>1)
-//   out0=s0+d1  out1=s1+d0  out2=s1-d0  out3=s0-d1
-// ================================================================
-.L_op_dct2_inverse_fp32:
-    ldr     w22, [x19]             // dim (element count)
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // src_ptr
-    ldr     x11, [x19], #8        // dst_ptr
-    cbz     w22, .L_dispatch
-    ptrue   p0.s
-    lsr     x23, x22, #2          // num_groups = dim / 4
-    mov     x10, #0               // group index
-    cntw    x9                    // groups per full iteration (SVLs = 16)
-    whilelt p1.s, x10, x23
-.L_dcti_loop:
-    // ── Deinterleave: z0=pos0, z1=pos1, z2=pos2, z3=pos3 of each group ──
-    ld4w    {z0.s-z3.s}, p1/z, [x8]
-    // ── Convert fp32 → int32 for integer butterfly ──
-    fcvtzs  z0.s, p0/m, z0.s      // y0
-    fcvtzs  z1.s, p0/m, z1.s      // y1
-    fcvtzs  z2.s, p0/m, z2.s      // y2
-    fcvtzs  z3.s, p0/m, z3.s      // y3
-    // ── Sums and differences ──
-    add     z4.s, z0.s, z2.s      // s0 = y0 + y2
-    sub     z5.s, z0.s, z2.s      // s1 = y0 - y2
-    asr     z6.s, z1.s, #1        // y1 >> 1
-    sub     z6.s, z6.s, z3.s      // d0 = (y1 >> 1) - y3
-    asr     z7.s, z3.s, #1        // y3 >> 1
-    add     z7.s, z1.s, z7.s      // d1 = y1 + (y3 >> 1)
-    // ── Inverse butterfly outputs ──
-    add     z0.s, z4.s, z7.s      // out0 = s0 + d1
-    add     z1.s, z5.s, z6.s      // out1 = s1 + d0
-    sub     z2.s, z5.s, z6.s      // out2 = s1 - d0
-    sub     z3.s, z4.s, z7.s      // out3 = s0 - d1
-    // ── Convert int32 → fp32 ──
-    scvtf   z0.s, p0/m, z0.s
-    scvtf   z1.s, p0/m, z1.s
-    scvtf   z2.s, p0/m, z2.s
-    scvtf   z3.s, p0/m, z3.s
-    // ── Interleave and store ──
-    st4w    {z0.s-z3.s}, p1, [x11]
-    // ── Advance pointers and loop ──
-    add     x8, x8, x9, lsl #4    // src += SVLs * 4 * 4
-    add     x11, x11, x9, lsl #4   // dst += SVLs * 4 * 4
-    add     x10, x10, x9          // group_index += SVLs
-    whilelt p1.s, x10, x23
-    b.first .L_dcti_loop
-    b       .L_dispatch
-// ================================================================
-// THRESHOLD_BITMAP_FP32 (0x2A)
-// Compare float32 array against threshold, produce packed bitmap.
-// Each bit in the output corresponds to one input float32 element:
-// bit i is set iff src[i] > threshold.
-// Encoding: [0x2A][dim:u32][threshold:f32][src_ptr:u64][bitmap_out:u64]
-// dim = number of float32 elements
-// Output: packed bits, byte 0 = bits 0-7, byte 1 = bits 8-15, etc.
-// Output size = ceil(dim / 8) bytes.
-//
-// Algorithm per SVLs (16) elements:
-// 1. fcmgt → predicate p1
-// 2. Materialize as 0/1 int32, narrow to bytes via uzp1 chain
-// 3. Multiply by bit-position mask {1,2,4,8,16,32,64,128} x2
-// 4. Pairwise-add tree (3 rounds) packs 16 bytes → 2 bytes
-// 5. Extract via fmov and store
-// ================================================================
-.L_op_threshold_bitmap_fp32:
-    ldr     w22, [x19]             // dim (element count)
-    ldr     s16, [x19, #4]        // threshold (f32)
-    add     x19, x19, #8
-    ldr     x8, [x19], #8         // src_ptr
-    ldr     x11, [x19], #8        // bitmap_out
-    cbz     w22, .L_dispatch
-    ptrue   p0.s
-    mov     z16.s, s16             // broadcast threshold to all .s lanes
-    cntw    x9                    // elements per z-vector (16 on M4)
-    // ── Build bit-position mask: {1,2,4,8,16,32,64,128} repeating every 8 bytes ──
-    movz    x24, #0x0201
-    movk    x24, #0x0804, lsl #16
-    movk    x24, #0x2010, lsl #32
-    movk    x24, #0x8040, lsl #48
-    dup     z17.d, x24             // z17.b = {1,2,4,8,16,32,64,128, 1,2,4,8,...}
-    ptrue   p2.b                   // byte-granularity predicate for mul/addp
-    mov     x10, #0               // element index
-.L_thr_loop:
-    // ── Check remaining elements ──
-    sub     x24, x22, x10          // remaining = dim - current
-    cmp     x24, x9
-    b.lt    .L_thr_tail
-    // ── Full vector: 16 float32 elements → 2 bytes of bitmap ──
+    zero    {za0.s}
+    mov     w11, #16
+.L_mpt_fmopa_loop:
     ld1w    {z0.s}, p0/z, [x8]
-    fcmgt   p1.s, p0/z, z0.s, z16.s
-    // ── Materialize predicate as 0/1 int32 values ──
-    mov     z1.d, #0
-    mov     z1.s, p1/m, #1
-    // ── Narrow int32 → int16 → int8 (16 elements → 16 bytes in low half) ──
-    uzp1    z1.h, z1.h, z1.h      // 32→16 bit lanes
-    uzp1    z1.b, z1.b, z1.b      // 16→8 bit lanes: bytes 0-15 = 0 or 1
-    // ── Multiply by bit-position mask: byte i → 0 or 2^(i%8) ──
-    mul     z1.b, p2/m, z1.b, z17.b
-    // ── Pairwise-add tree: pack 16 bytes → 2 bytes ──
-    addp    z1.b, p2/m, z1.b, z1.b
-    addp    z1.b, p2/m, z1.b, z1.b
-    addp    z1.b, p2/m, z1.b, z1.b
-    // ── Extract and store 2 bytes of bitmap ──
-    fmov    w24, s1                // low 32 bits of z1 → w24
-    strh    w24, [x11]            // store 2 bytes of bitmap
-    add     x11, x11, #2
-    add     x8, x8, x9, lsl #2    // src += 16 * 4 bytes
-    add     x10, x10, x9          // element_index += 16
-    b       .L_thr_loop
-.L_thr_tail:
-    // ── Handle remaining 0-15 elements ──
-    cbz     x24, .L_dispatch
-    mov     x13, x24               // save remaining count before fmov clobbers x24
-    whilelt p3.s, xzr, x24        // predicate for remaining elements
-    ld1w    {z0.s}, p3/z, [x8]
-    fcmgt   p1.s, p3/z, z0.s, z16.s
-    // ── Materialize, narrow, pack (same as full path) ──
-    mov     z1.d, #0
-    mov     z1.s, p1/m, #1
-    uzp1    z1.h, z1.h, z1.h
-    uzp1    z1.b, z1.b, z1.b
-    mul     z1.b, p2/m, z1.b, z17.b
-    addp    z1.b, p2/m, z1.b, z1.b
-    addp    z1.b, p2/m, z1.b, z1.b
-    addp    z1.b, p2/m, z1.b, z1.b
-    // ── Store ceil(remaining/8) bytes ──
-    fmov    w24, s1                // extract packed bitmap
-    cmp     x13, #8               // compare remaining count (not bitmap data)
-    b.le    .L_thr_tail_1b
-    strh    w24, [x11]            // 9-15 elements: store 2 bytes
-    b       .L_dispatch
-.L_thr_tail_1b:
-    strb    w24, [x11]            // 1-8 elements: store 1 byte
+    ld1w    {z1.s}, p0/z, [x9]
+    fmopa   za0.s, p0/m, p0/m, z0.s, z1.s
+    addvl   x8, x8, #1
+    addvl   x9, x9, #1
+    subs    w11, w11, #1
+    b.ne    .L_mpt_fmopa_loop
+    cntw    x13
+    mov     w12, #0
+.L_mpt_store_loop:
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    st1w    {z0.s}, p0, [x10]
+    addvl   x10, x10, #1
+    st1w    {z1.s}, p0, [x10]
+    addvl   x10, x10, #1
+    st1w    {z2.s}, p0, [x10]
+    addvl   x10, x10, #1
+    st1w    {z3.s}, p0, [x10]
+    addvl   x10, x10, #1
+    add     w12, w12, #4
+    cmp     w12, w13
+    b.lt    .L_mpt_store_loop
     b       .L_dispatch
 // ================================================================
-// WELFORD_STATS_FP32 (0x2B) — online mean/stddev/maxabs/scale via Welford
-// Processes n_vectors of dimension dim fp32 inputs, outputs per-dimension
-// statistics as 4*dim doubles: mean[dim], stddev[dim], maxabs[dim], scale[dim]
-// All accumulation in f64 for numerical stability.
-//
-// Bytecode: [0x2B][n_vectors:u32][dim:u32][src_ptr:u64][stats_out:u64]
-// src_ptr  = n_vectors * dim float32 (row-major AoS)
-// stats_out = 4 * dim doubles: mean[dim], stddev[dim], maxabs[dim], scale[dim]
-//
-// Outer loop: SVLd dimensions per chunk (8 on M4)
-// Inner loop: n_vectors, loading one fp32 per f64 lane via ld1w {z.d}
-//
-// Stack frame: 48 bytes
-//   [0]  src_ptr      [8]  stats_out
-//   [16] n_vectors    [20] dim
-//   [24] dim_offset   [32] row_stride (dim*4)
+// MATMUL_LUT_PARTIAL_TILE_F32 (0x30)
+// Encoding: [0x30][a_idx:u8][b_idx:u8][a_table_idx:u8][b_table_idx:u8][out_idx:u8][bits:u8]
+// Computes one 16x16 f32 tile from packed i4/i2 vector panels.
 // ================================================================
-.L_op_welford_stats_fp32:
-    ldr     w22, [x19]             // n_vectors (u32)
-    ldr     w23, [x19, #4]        // dim (u32)
-    add     x19, x19, #8
-    ldr     x8, [x19], #8         // src_ptr (float32*)
-    ldr     x11, [x19], #8        // stats_out (double*)
-    sub     sp, sp, #48
-    str     x8, [sp, #0]
-    str     x11, [sp, #8]
-    str     w22, [sp, #16]
-    str     w23, [sp, #20]
-    lsl     w24, w23, #2           // row_stride = dim * 4 bytes
-    str     w24, [sp, #32]
-    ptrue   p0.d
-    cntd    x9                     // SVLd = 8 on M4
-    mov     x10, #0                // dim_offset = 0
-.L_wf_dim_loop:
-    cmp     w10, w23
-    b.ge    .L_wf_done
-    str     x10, [sp, #24]
-    whilelt p1.d, x10, x23        // tail predicate for this dim chunk
-    // ── Init accumulators: mean, M2, maxabs as f64 vectors ──
-    fmov    z4.d, #0.0             // mean
-    fmov    z5.d, #0.0             // M2
-    fmov    z6.d, #0.0             // maxabs
-    // ── Compute base ptr: &src[0 * dim + dim_offset] ──
-    ldr     x8, [sp, #0]
-    add     x8, x8, x10, lsl #2   // src + dim_offset * sizeof(float)
-    ldr     w22, [sp, #16]        // n_vectors
-    ldr     w24, [sp, #32]        // row_stride (bytes)
-    mov     x12, #0                // count = 0
-.L_wf_vec_loop:
-    cmp     w12, w22
-    b.ge    .L_wf_vec_done
-    // ── Load SVLd fp32 values, widen to f64 ──
-    ld1w    {z0.d}, p1/z, [x8]    // one fp32 per f64 lane (zero-ext upper 32b)
-    fcvt    z0.d, p1/m, z0.s      // widen fp32 → fp64
-    // ── maxabs = max(maxabs, |x|) ──
-    fabs    z1.d, p1/m, z0.d
-    fmax    z6.d, p1/m, z6.d, z1.d
-    // ── Welford update ──
-    add     x12, x12, #1
-    ucvtf   d16, x12               // count → f64 scalar
-    fmov    d17, #1.0
-    fdiv    d16, d17, d16           // inv_count = 1.0 / count
-    mov     z7.d, d16              // broadcast inv_count
-    fsub    z1.d, z0.d, z4.d      // delta = x - mean
-    fmla    z4.d, p1/m, z1.d, z7.d // mean += delta / count
-    fsub    z2.d, z0.d, z4.d      // delta2 = x - mean (updated)
-    fmla    z5.d, p1/m, z1.d, z2.d // M2 += delta * delta2
-    add     x8, x8, x24           // advance src by row_stride
-    b       .L_wf_vec_loop
-.L_wf_vec_done:
-    // ── Finalize: stddev = sqrt(M2 / count), scale = 7.0 / maxabs ──
-    ldr     w22, [sp, #16]
-    ucvtf   d16, w22               // count → f64
-    fmov    d17, #1.0
-    fdiv    d16, d17, d16          // 1/count
-    mov     z7.d, d16
-    mov     z3.d, z5.d
-    fmul    z3.d, p1/m, z3.d, z7.d // variance = M2/count
-    fsqrt   z3.d, p1/m, z3.d      // stddev
-    movz    x13, #0x401C, lsl #48 // 7.0 as f64 = 0x401C_0000_0000_0000
-    fmov    d16, x13
-    mov     z7.d, d16              // broadcast 7.0
-    fcmgt   p2.d, p1/z, z6.d, #0.0
-    fmov    z2.d, #0.0             // default scale = 0
-    mov     z1.d, z7.d             // z1 = 7.0
-    fdiv    z1.d, p2/m, z1.d, z6.d // 7.0/maxabs where maxabs > 0
-    sel     z2.d, p2, z1.d, z2.d
-    // ── Store: mean, stddev, maxabs, scale ──
-    ldr     x11, [sp, #8]
-    ldr     x10, [sp, #24]
-    ldr     w23, [sp, #20]
-    st1d    {z4.d}, p1, [x11, x10, lsl #3]
-    add     x13, x10, x23
-    st1d    {z3.d}, p1, [x11, x13, lsl #3]
-    add     x13, x13, x23
-    st1d    {z6.d}, p1, [x11, x13, lsl #3]
-    add     x13, x13, x23
-    st1d    {z2.d}, p1, [x11, x13, lsl #3]
-    add     x10, x10, x9
-    b       .L_wf_dim_loop
-.L_wf_done:
-    add     sp, sp, #48
-    b       .L_dispatch
-// ================================================================
-// QUANTIZE_PACK_4BIT_FP32 (0x2C) — quantize fp32 to signed 4-bit SoA packed
-// Dual source: raw + DCT quantized simultaneously.
-// Output: SoA layout, per-dim columns of ceil(n/2) packed bytes.
-//
-// Bytecode: [0x2C][n:u32][dim:u32][src_ptr:u64][stats_ptr:u64]
-//           [raw_out:u64][dct_src:u64][dct_out:u64]
-// stats_ptr = welford output: mean[dim](f64) at offset 0, scale[dim](f64) at 3*dim
-//
-// Per element: q = clamp(round((val - mean) * scale), -7, +7)
-// Pack: low nibble = even vec idx, high nibble = odd vec idx
-// SoA: output[d * packed_row + v/2] = packed pair for dim d
-//
-// Stack frame: 80 bytes
-//   [0]  src_ptr      [8]  stats_ptr     [16] raw_out
-//   [24] dct_src      [32] dct_out       [40] n  [44] dim
-//   [48] dim_offset   [56] packed_row_bytes  [64] row_stride
-// ================================================================
-.L_op_quantize_pack_4bit_fp32:
-    ldr     w22, [x19]             // n
-    ldr     w23, [x19, #4]        // dim
-    add     x19, x19, #8
-    ldr     x8, [x19], #8         // src_ptr
-    ldr     x11, [x19], #8        // stats_ptr
-    ldr     x12, [x19], #8        // raw_out
-    ldr     x13, [x19], #8        // dct_src
-    ldr     x14, [x19], #8        // dct_out
-    sub     sp, sp, #80
-    str     x8, [sp, #0]
-    str     x11, [sp, #8]
-    str     x12, [sp, #16]
-    str     x13, [sp, #24]
-    str     x14, [sp, #32]
-    str     w22, [sp, #40]
-    str     w23, [sp, #44]
-    add     w24, w22, #1
-    lsr     w24, w24, #1           // packed_row_bytes = ceil(n/2)
-    str     w24, [sp, #56]
-    lsl     w24, w23, #2           // row_stride = dim*4
-    str     w24, [sp, #64]
-    mov     x10, #0                // dim_offset = 0
-.L_qp_dim_loop:
-    ldr     w23, [sp, #44]
-    cmp     w10, w23
-    b.ge    .L_qp_done
-    str     x10, [sp, #48]
-    // ── Load mean[d] and scale[d] from stats (f64), convert to fp32 ──
-    ldr     x11, [sp, #8]
-    ldr     d16, [x11, x10, lsl #3] // mean[d]
-    add     x24, x10, x23
-    add     x24, x24, x23
-    add     x24, x24, x23          // offset = 3*dim + d
-    ldr     d17, [x11, x24, lsl #3] // scale[d]
-    fcvt    s16, d16
-    fcvt    s17, d17
-    // ── Output base for this dim ──
-    ldr     x12, [sp, #16]
-    ldr     x14, [sp, #32]
-    ldr     w24, [sp, #56]
-    mul     w15, w10, w24
-    add     x12, x12, x15         // &raw_out[d * packed_row]
-    add     x14, x14, x15         // &dct_out[d * packed_row]
-    // ── Src bases for dim d ──
-    ldr     x8, [sp, #0]
-    add     x8, x8, x10, lsl #2   // &src[d]
-    ldr     x13, [sp, #24]
-    add     x13, x13, x10, lsl #2 // &dct[d]
-    ldr     w22, [sp, #40]        // n
-    ldr     w24, [sp, #64]        // row_stride bytes
-    mov     x10, #0                // vec_idx
-.L_qp_vec_pair:
-    cmp     w10, w22
-    b.ge    .L_qp_vec_end
-    // ── Quantize raw src[vec_idx * dim + d] ──
-    mul     w15, w10, w24
-    ldr     s0, [x8, x15]
-    fsub    s0, s0, s16
-    fmul    s0, s0, s17
-    frintn  s0, s0
-    fcvtzs  w0, s0
-    mov     w26, #-7
-    cmp     w0, w26
-    csel    w0, w26, w0, lt        // clamp low: max(val, -7)
-    mov     w26, #7
-    cmp     w0, w26
-    csel    w0, w26, w0, gt        // clamp high: min(val, 7)
-    and     w0, w0, #0x0F
-    // ── Quantize dct[vec_idx * dim + d] ──
-    ldr     s0, [x13, x15]
-    fsub    s0, s0, s16
-    fmul    s0, s0, s17
-    frintn  s0, s0
-    fcvtzs  w1, s0
-    mov     w26, #-7
-    cmp     w1, w26
-    csel    w1, w26, w1, lt
-    mov     w26, #7
-    cmp     w1, w26
-    csel    w1, w26, w1, gt
-    and     w1, w1, #0x0F
-    // ── Check for odd partner ──
-    add     w10, w10, #1
-    cmp     w10, w22
-    b.ge    .L_qp_store_unpaired
-    // ── Quantize raw src[vec_idx+1] ──
-    mul     w15, w10, w24
-    ldr     s0, [x8, x15]
-    fsub    s0, s0, s16
-    fmul    s0, s0, s17
-    frintn  s0, s0
-    fcvtzs  w2, s0
-    mov     w26, #-7
-    cmp     w2, w26
-    csel    w2, w26, w2, lt
-    mov     w26, #7
-    cmp     w2, w26
-    csel    w2, w26, w2, gt
-    and     w2, w2, #0x0F
-    orr     w0, w0, w2, lsl #4
-    // ── Quantize dct[vec_idx+1] ──
-    ldr     s0, [x13, x15]
-    fsub    s0, s0, s16
-    fmul    s0, s0, s17
-    frintn  s0, s0
-    fcvtzs  w2, s0
-    mov     w26, #-7
-    cmp     w2, w26
-    csel    w2, w26, w2, lt
-    mov     w26, #7
-    cmp     w2, w26
-    csel    w2, w26, w2, gt
-    and     w2, w2, #0x0F
-    orr     w1, w1, w2, lsl #4
-    // ── Store packed byte ──
-    sub     w15, w10, #1           // even index
-    lsr     w15, w15, #1           // byte_idx
-    strb    w0, [x12, x15]
-    strb    w1, [x14, x15]
-    add     w10, w10, #1
-    b       .L_qp_vec_pair
-.L_qp_store_unpaired:
-    sub     w15, w10, #1
-    lsr     w15, w15, #1
-    strb    w0, [x12, x15]
-    strb    w1, [x14, x15]
-.L_qp_vec_end:
-    ldr     x10, [sp, #48]
-    add     x10, x10, #1
-    b       .L_qp_dim_loop
-.L_qp_done:
-    add     sp, sp, #80
-    b       .L_dispatch
-// ================================================================
-// THRESHOLD_8BIT (0x2D) — reconstruct 8-bit counters from 8 bitplanes,
-// compare > threshold, produce bitmap output.
-//
-// Bytecode: [0x2D][n_bytes:u32][threshold:u8][src_ptr:u64][bitmap_out:u64]
-// src_ptr = 8 contiguous bitplanes, each n_bytes long
-// For each byte position j, bit position i: counter = sum(bp_k bit_i << k)
-//   output bit i = (counter > threshold)
-// ================================================================
-.L_op_threshold_8bit:
-    ldr     w22, [x19]             // n_bytes
-    ldrb    w23, [x19, #4]        // threshold
-    add     x19, x19, #5
-    ldr     x8, [x19], #8         // src_ptr
-    ldr     x11, [x19], #8        // bitmap_out
-    // Bitplane base pointers: bp_k = src + k * n_bytes
-    mov     x0, x8
-    add     x1, x8, x22
-    add     x2, x1, x22
-    add     x3, x2, x22
-    add     x4, x3, x22
-    add     x5, x4, x22
-    add     x6, x5, x22
-    add     x7, x6, x22
-    mov     x10, #0
-.L_th8_byte:
-    cmp     w10, w22
-    b.ge    .L_th8_done
-    ldrb    w12, [x0, x10]        // bp0[j]
-    ldrb    w13, [x1, x10]        // bp1[j]
-    ldrb    w14, [x2, x10]        // bp2[j]
-    ldrb    w15, [x3, x10]        // bp3[j]
-    ldrb    w16, [x4, x10]        // bp4[j]
-    ldrb    w17, [x5, x10]        // bp5[j]
-    ldrb    w18, [x6, x10]        // bp6[j]
-    ldrb    w24, [x7, x10]        // bp7[j]
-    mov     w9, #0                 // result byte
-    // ── Bit 0: reconstruct counter from bit 0 of each bitplane ──
-    and     w26, w12, #1
-    ubfx    w20, w13, #0, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #0, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #0, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #0, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #0, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #0, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #0, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20
-    // ── Bit 1 ──
-    ubfx    w26, w12, #1, #1
-    ubfx    w20, w13, #1, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #1, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #1, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #1, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #1, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #1, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #1, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #1
-    // ── Bit 2 ──
-    ubfx    w26, w12, #2, #1
-    ubfx    w20, w13, #2, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #2, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #2, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #2, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #2, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #2, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #2, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #2
-    // ── Bit 3 ──
-    ubfx    w26, w12, #3, #1
-    ubfx    w20, w13, #3, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #3, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #3, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #3, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #3, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #3, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #3, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #3
-    // ── Bit 4 ──
-    ubfx    w26, w12, #4, #1
-    ubfx    w20, w13, #4, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #4, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #4, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #4, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #4, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #4, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #4, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #4
-    // ── Bit 5 ──
-    ubfx    w26, w12, #5, #1
-    ubfx    w20, w13, #5, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #5, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #5, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #5, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #5, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #5, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #5, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #5
-    // ── Bit 6 ──
-    ubfx    w26, w12, #6, #1
-    ubfx    w20, w13, #6, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #6, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #6, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #6, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #6, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #6, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #6, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #6
-    // ── Bit 7 ──
-    ubfx    w26, w12, #7, #1
-    ubfx    w20, w13, #7, #1
-    orr     w26, w26, w20, lsl #1
-    ubfx    w20, w14, #7, #1
-    orr     w26, w26, w20, lsl #2
-    ubfx    w20, w15, #7, #1
-    orr     w26, w26, w20, lsl #3
-    ubfx    w20, w16, #7, #1
-    orr     w26, w26, w20, lsl #4
-    ubfx    w20, w17, #7, #1
-    orr     w26, w26, w20, lsl #5
-    ubfx    w20, w18, #7, #1
-    orr     w26, w26, w20, lsl #6
-    ubfx    w20, w24, #7, #1
-    orr     w26, w26, w20, lsl #7
-    cmp     w26, w23
-    cset    w20, hi
-    orr     w9, w9, w20, lsl #7
-    strb    w9, [x11, x10]
-    add     x10, x10, #1
-    b       .L_th8_byte
-.L_th8_done:
-    b       .L_dispatch
-// ================================================================
-// QUANTIZE_ACCUM_2BIT (0x2E)
-// Ternary 2-bit decode {00=0, 01=+1, 11=-1}, bf16 scale, bf16 accum.
-// Encoding: [0x2E][count:u32][packed_ptr:u64][scale_ptr:u64][accum_ptr:u64]
-// Per iter: 16 elems (cntw) = 4 packed bytes. Decode via scalar GP into
-// int32 scratch on stack, then ld1w → scvtf → fmul scale → fadd accum.
-// bf16 ↔ fp32: ld1h into .s (zero-ext) + lsl #16; lsr #16 + st1h from .s.
-// ================================================================
-.L_op_quantize_accum_2bit:
-    ldr     w22, [x19]
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // packed_ptr
-    ldr     x11, [x19], #8        // scale_ptr (bf16*)
-    ldr     x13, [x19], #8        // accum_ptr (bf16*)
-    cbz     w22, .L_dispatch
+.L_op_matmul_lut_partial_tile_f32:
+    ldrb    w9, [x19], #1          // a param index
+    ldrb    w10, [x19], #1         // b param index
+    ldrb    w11, [x19], #1         // a table param index
+    ldrb    w12, [x19], #1         // b table param index
+    ldrb    w13, [x19], #1         // out param index
+    ldrb    w14, [x19], #1         // low-bit width: 4 or 2
+    add     x15, sp, #128          // param table base
+    ldr     x8, [x15, x9, lsl #3] // a packed panel
+    ldr     x9, [x15, x10, lsl #3] // b packed panel
+    ldr     x10, [x15, x11, lsl #3] // a f32 lookup table
+    ldr     x11, [x15, x12, lsl #3] // b f32 lookup table
+    ldr     x12, [x15, x13, lsl #3] // partial_tile
     ptrue   p0.s
-    sub     sp, sp, #64            // scratch: 16 x int32
-    cntw    x9
-    mov     x10, #0
-    whilelt p1.s, x10, x22
-.L_qa2b_loop:
-    lsr     x14, x10, #2          // packed byte offset
-    mov     x15, #0                // stack word offset (bytes)
-    mov     w0, #4                 // 4 bytes to decode
-.L_qa2b_byte:
-    ldrb    w16, [x8, x14]
-    add     x14, x14, #1
-    and     w1, w16, #0x03         // crumb 0
-    cmp     w1, #1
-    cset    w2, eq
-    cmp     w1, #3
-    csinv   w2, w2, wzr, ne
-    str     w2, [sp, x15]
-    add     x15, x15, #4
-    ubfx    w1, w16, #2, #2        // crumb 1
-    cmp     w1, #1
-    cset    w2, eq
-    cmp     w1, #3
-    csinv   w2, w2, wzr, ne
-    str     w2, [sp, x15]
-    add     x15, x15, #4
-    ubfx    w1, w16, #4, #2        // crumb 2
-    cmp     w1, #1
-    cset    w2, eq
-    cmp     w1, #3
-    csinv   w2, w2, wzr, ne
-    str     w2, [sp, x15]
-    add     x15, x15, #4
-    lsr     w1, w16, #6            // crumb 3
-    cmp     w1, #1
-    cset    w2, eq
-    cmp     w1, #3
-    csinv   w2, w2, wzr, ne
-    str     w2, [sp, x15]
-    add     x15, x15, #4
-    subs    w0, w0, #1
-    b.ne    .L_qa2b_byte
-    ld1w    {z0.s}, p0/z, [sp]    // 16 decoded ternary as int32
-    scvtf   z0.s, p0/m, z0.s      // → fp32
-    ld1h    {z1.s}, p1/z, [x11, x10, lsl #1]  // bf16 scale → u32 (zero-ext)
-    lsl     z1.s, z1.s, #16       // bf16 → fp32
-    fmul    z0.s, p1/m, z0.s, z1.s
-    ld1h    {z2.s}, p1/z, [x13, x10, lsl #1]  // bf16 accum → u32
-    lsl     z2.s, z2.s, #16       // bf16 → fp32
-    fadd    z2.s, p1/m, z2.s, z0.s
-    lsr     z2.s, z2.s, #16       // fp32 → bf16
-    st1h    {z2.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.first .L_qa2b_loop
-    add     sp, sp, #64
-    b       .L_dispatch
-// ================================================================
-// ACCUM_8BIT (0x2F)
-// INT8 signed data * bf16 per-coeff scale → bf16 accumulator.
-// Encoding: [0x2F][count:u32][data_ptr:u64][scale_ptr:u64][accum_ptr:u64]
-// Per iter: 16 elements. ld1sb into .s (sign-extend i8→i32), scvtf.
-// ================================================================
-.L_op_accum_8bit:
-    ldr     w22, [x19]
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // data_ptr (int8_t*)
-    ldr     x11, [x19], #8        // scale_ptr (bf16*)
-    ldr     x13, [x19], #8        // accum_ptr (bf16*)
-    cbz     w22, .L_dispatch
-    ptrue   p0.s
-    mov     x10, #0
-    whilelt p1.s, x10, x22
-.L_a8b_loop:
-    ld1sb   {z0.s}, p1/z, [x8, x10]
-    scvtf   z0.s, p0/m, z0.s
-    ld1h    {z1.s}, p1/z, [x11, x10, lsl #1]
-    lsl     z1.s, z1.s, #16
-    fmul    z0.s, p1/m, z0.s, z1.s
-    ld1h    {z2.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z2.s, z2.s, #16
-    fadd    z2.s, p1/m, z2.s, z0.s
-    lsr     z2.s, z2.s, #16
-    st1h    {z2.s}, p1, [x13, x10, lsl #1]
-    incw    x10
-    whilelt p1.s, x10, x22
-    b.first .L_a8b_loop
-    b       .L_dispatch
-// ================================================================
-// SOA_SUB_SCALE_BF16 (0x30)
-// SoA quantized L2 partial: accum[i] += bf16((src[i]*scale - scalar)^2)
-// Encoding: [0x30][count:u32][src_ptr:u64][scalar:f32][scale:f32][accum_ptr:u64]
-// Per iter: 16 elements. ld1b into .s (u8→u32), ucvtf, fmul scale, fsub scalar, square.
-// ================================================================
-.L_op_soa_sub_scale_bf16:
-    ldr     w22, [x19]
-    ldr     s16, [x19, #4]
-    ldr     s17, [x19, #8]
-    add     x19, x19, #12
-    ldr     x8, [x19], #8         // src_ptr (uint8_t*)
-    ldr     x13, [x19], #8        // accum_ptr (bf16*)
-    cbz     w22, .L_dispatch
-    ptrue   p0.s
-    mov     z16.s, s16             // broadcast scalar
-    mov     z17.s, s17             // broadcast scale
-    mov     x10, #0
-    whilelt p1.s, x10, x22
-.L_soa_ss_loop:
-    ld1b    {z0.s}, p1/z, [x8, x10]
-    ucvtf   z0.s, p0/m, z0.s
-    fmul    z0.s, p0/m, z0.s, z17.s
-    fsub    z0.s, z0.s, z16.s
-    fmul    z0.s, p0/m, z0.s, z0.s        // square
-    ld1h    {z1.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z1.s, z1.s, #16
-    fadd    z1.s, p1/m, z1.s, z0.s
-    lsr     z1.s, z1.s, #16
-    st1h    {z1.s}, p1, [x13, x10, lsl #1]
-    incw    x10
-    whilelt p1.s, x10, x22
-    b.first .L_soa_ss_loop
-    b       .L_dispatch
-// ================================================================
-// SOA_LUTI2_ACCUM (0x31)
-// LUTI2 expand 2-bit packed indices via ZT0, accumulate bf16.
-// Encoding: [0x31][count:u32][packed_ptr:u64][table_ptr:u64][accum_ptr:u64]
-// count = number of 2-bit elements (4 per byte).
-// luti2 z.h, zt0, z[seg]: 32 input bytes → 32 halfword outputs per segment.
-// Segments [0]-[3] extract crumbs 0-3 from each byte (bits [1:0] thru [7:6]).
-// Per z-load of 32 packed bytes: 4 segments x 32 = 128 elements.
-// Accumulate by widening halfwords to fp32 via uunpklo/hi + lsl #16.
-// ================================================================
-.L_op_soa_luti2_accum:
-    ldr     w22, [x19]
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // packed_ptr
-    ldr     x11, [x19], #8        // table_ptr (64 bytes → ZT0)
-    ldr     x13, [x19], #8        // accum_ptr (bf16*)
-    cbz     w22, .L_dispatch
+    zero    {za0.s}
+    cmp     w14, #2
+    b.eq    .L_mpt_lut_i2
+    mov     x16, #8
+    whilelt p1.b, xzr, x16
+    mov     w13, #16
+.L_mpt_lut_i4_loop:
+    ld1b    {z2.b}, p1/z, [x8]
+    ldr     zt0, [x10]
+    luti4   z0.s, zt0, z2[0]
+    ld1b    {z3.b}, p1/z, [x9]
     ldr     zt0, [x11]
-    ptrue   p0.s
-    ptrue   p2.b
-    cntw    x9                     // 16
-    mov     x10, #0                // element offset
-    mov     x15, #0                // packed byte offset
-.L_soa_l2a_loop:
-    cmp     x10, x22
-    b.hs    .L_soa_l2a_done
-    ld1b    {z0.b}, p2/z, [x8, x15]
-    // Segment [0]: bits[1:0] → 32 halfwords
-    luti2   z1.h, zt0, z0[0]
-    // Low 16 halfwords → fp32, accumulate, store
-    whilelt p1.s, x10, x22
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    // High 16 halfwords
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    // Segment [1]: bits[3:2]
-    luti2   z1.h, zt0, z0[1]
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    // Segment [2]: bits[5:4]
-    luti2   z1.h, zt0, z0[2]
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    // Segment [3]: bits[7:6]
-    luti2   z1.h, zt0, z0[3]
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l2a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    add     x15, x15, #32         // 128 elements from 32 packed bytes
-    b       .L_soa_l2a_loop
-.L_soa_l2a_done:
-    b       .L_dispatch
-// ================================================================
-// SOA_LUTI4_ACCUM (0x32)
-// LUTI4 expand 4-bit packed indices via ZT0, accumulate bf16.
-// Encoding: [0x32][count:u32][packed_ptr:u64][table_ptr:u64][accum_ptr:u64]
-// count = number of 4-bit elements (2 per byte).
-// luti4 z.h, zt0, z[seg]: seg[0]=low nibble, seg[1]=high nibble of 32 bytes.
-// Per z-load of 32 packed bytes: 2 segments x 32 = 64 elements.
-// ================================================================
-.L_op_soa_luti4_accum:
-    ldr     w22, [x19]
-    add     x19, x19, #4
-    ldr     x8, [x19], #8         // packed_ptr
-    ldr     x11, [x19], #8        // table_ptr (64 bytes → ZT0)
-    ldr     x13, [x19], #8        // accum_ptr (bf16*)
-    cbz     w22, .L_dispatch
+    luti4   z1.s, zt0, z3[0]
+    fmopa   za0.s, p0/m, p0/m, z0.s, z1.s
+    add     x8, x8, #8
+    add     x9, x9, #8
+    subs    w13, w13, #1
+    b.ne    .L_mpt_lut_i4_loop
+    b       .L_mpt_lut_store
+.L_mpt_lut_i2:
+    mov     x16, #4
+    whilelt p1.b, xzr, x16
+    mov     w13, #16
+.L_mpt_lut_i2_loop:
+    ld1b    {z2.b}, p1/z, [x8]
+    ldr     zt0, [x10]
+    luti2   z0.s, zt0, z2[0]
+    ld1b    {z3.b}, p1/z, [x9]
     ldr     zt0, [x11]
+    luti2   z1.s, zt0, z3[0]
+    fmopa   za0.s, p0/m, p0/m, z0.s, z1.s
+    add     x8, x8, #4
+    add     x9, x9, #4
+    subs    w13, w13, #1
+    b.ne    .L_mpt_lut_i2_loop
+.L_mpt_lut_store:
+    cntw    x13
+    mov     w14, #0
+.L_mpt_lut_store_loop:
+    mova    {z0.s-z3.s}, za0h.s[w14, 0:3]
+    st1w    {z0.s}, p0, [x12]
+    addvl   x12, x12, #1
+    st1w    {z1.s}, p0, [x12]
+    addvl   x12, x12, #1
+    st1w    {z2.s}, p0, [x12]
+    addvl   x12, x12, #1
+    st1w    {z3.s}, p0, [x12]
+    addvl   x12, x12, #1
+    add     w14, w14, #4
+    cmp     w14, w13
+    b.lt    .L_mpt_lut_store_loop
+    b       .L_dispatch
+// ================================================================
+// MATMUL_PARTIAL_TILE_F16_F32 (0x31)
+// Encoding: [0x31][a_idx:u8][b_idx:u8][out_idx:u8]
+// Computes one 16x16 f32 tile from 8 packed f16 vector pairs.
+// ================================================================
+.L_op_matmul_partial_tile_f16_f32:
+    ldrb    w9, [x19], #1          // a param index
+    ldrb    w10, [x19], #1         // b param index
+    ldrb    w11, [x19], #1         // out param index
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // a_panel
+    ldr     x9, [x12, x10, lsl #3] // b_panel
+    ldr     x10, [x12, x11, lsl #3] // partial_tile
+    ptrue   p0.h
+    ptrue   p1.s
+    zero    {za0.s}
+    mov     w11, #8
+.L_mpt_f16_fmopa_loop:
+    ld1w    {z0.s}, p1/z, [x8]
+    ld1w    {z1.s}, p1/z, [x9]
+    fmopa   za0.s, p0/m, p0/m, z0.h, z1.h
+    addvl   x8, x8, #1
+    addvl   x9, x9, #1
+    subs    w11, w11, #1
+    b.ne    .L_mpt_f16_fmopa_loop
+    cntw    x13
+    mov     w12, #0
+.L_mpt_f16_store_loop:
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    st1w    {z0.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z1.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z2.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z3.s}, p1, [x10]
+    addvl   x10, x10, #1
+    add     w12, w12, #4
+    cmp     w12, w13
+    b.lt    .L_mpt_f16_store_loop
+    b       .L_dispatch
+// ================================================================
+// MATMUL_PARTIAL_TILE_BF16_F32 (0x32)
+// Encoding: [0x32][a_idx:u8][b_idx:u8][out_idx:u8]
+// Computes one 16x16 f32 tile from 8 packed bf16 vector pairs.
+// ================================================================
+.L_op_matmul_partial_tile_bf16_f32:
+    ldrb    w9, [x19], #1          // a param index
+    ldrb    w10, [x19], #1         // b param index
+    ldrb    w11, [x19], #1         // out param index
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // a_panel
+    ldr     x9, [x12, x10, lsl #3] // b_panel
+    ldr     x10, [x12, x11, lsl #3] // partial_tile
+    ptrue   p0.h
+    ptrue   p1.s
+    zero    {za0.s}
+    mov     w11, #8
+.L_mpt_bf16_fmopa_loop:
+    ld1w    {z0.s}, p1/z, [x8]
+    ld1w    {z1.s}, p1/z, [x9]
+    bfmopa  za0.s, p0/m, p0/m, z0.h, z1.h
+    addvl   x8, x8, #1
+    addvl   x9, x9, #1
+    subs    w11, w11, #1
+    b.ne    .L_mpt_bf16_fmopa_loop
+    cntw    x13
+    mov     w12, #0
+.L_mpt_bf16_store_loop:
+    mova    {z0.s-z3.s}, za0h.s[w12, 0:3]
+    st1w    {z0.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z1.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z2.s}, p1, [x10]
+    addvl   x10, x10, #1
+    st1w    {z3.s}, p1, [x10]
+    addvl   x10, x10, #1
+    add     w12, w12, #4
+    cmp     w12, w13
+    b.lt    .L_mpt_bf16_store_loop
+    b       .L_dispatch
+// ================================================================
+// REDUCE_TILE_STACK_F32 (0x29)
+// Encoding: [0x29][src_idx:u8][out_idx:u8][tile_count:u8]
+// Sums tile_count stacked 16x16 f32 tiles elementwise into one tile.
+// ================================================================
+.L_op_reduce_tile_stack_f32:
+    ldrb    w9, [x19], #1          // source tile stack param index
+    ldrb    w10, [x19], #1         // output tile param index
+    ldrb    w11, [x19], #1         // number of tiles in stack
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // source tile stack
+    ldr     x10, [x12, x10, lsl #3] // output tile
     ptrue   p0.s
-    ptrue   p2.b
-    cntw    x9                     // 16
-    mov     x10, #0
-    mov     x15, #0
-.L_soa_l4a_loop:
-    cmp     x10, x22
-    b.hs    .L_soa_l4a_done
-    ld1b    {z0.b}, p2/z, [x8, x15]
-    // Segment [0]: low nibbles → 32 halfwords
-    luti4   z1.h, zt0, z0[0]
-    whilelt p1.s, x10, x22
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l4a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    // Segment [1]: high nibbles → 32 halfwords
-    luti4   z1.h, zt0, z0[1]
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l4a_done
-    uunpklo z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    whilelt p1.s, x10, x22
-    b.none  .L_soa_l4a_done
-    uunpkhi z2.s, z1.h
-    lsl     z2.s, z2.s, #16
-    ld1h    {z3.s}, p1/z, [x13, x10, lsl #1]
-    lsl     z3.s, z3.s, #16
-    fadd    z3.s, p1/m, z3.s, z2.s
-    lsr     z3.s, z3.s, #16
-    st1h    {z3.s}, p1, [x13, x10, lsl #1]
-    add     x10, x10, x9
-    add     x15, x15, #32         // 64 elements from 32 packed bytes
-    b       .L_soa_l4a_loop
-.L_soa_l4a_done:
+    cntw    x14                    // f32 rows in one ZA tile
+    cntb    x15                    // bytes in one f32 row vector
+    mul     x16, x15, x14          // bytes per row-major tile
+    mov     x17, #0
+.L_rts_row_loop:
+    fmov    z4.s, #0.0
+    mov     x13, x8
+    mov     w12, w11
+.L_rts_chunk_loop:
+    ld1w    {z0.s}, p0/z, [x13]
+    fadd    z4.s, p0/m, z4.s, z0.s
+    add     x13, x13, x16
+    subs    w12, w12, #1
+    b.ne    .L_rts_chunk_loop
+    st1w    {z4.s}, p0, [x10]
+    addvl   x8, x8, #1
+    addvl   x10, x10, #1
+    add     x17, x17, #1
+    cmp     x17, x14
+    b.lt    .L_rts_row_loop
     b       .L_dispatch
 // ================================================================
-// BITMAP_SCORE_PIPELINE (0x33)
-// Ripple-carry bitmap accumulate + threshold + extract candidate IDs.
-// Encoding: [0x33][n_streams:u32][n_bytes:u32][n_vectors:u32]
-//           [score_min:u32][max_candidates:u32]
-//           [streams_ptr:u64][is_high_ptr:u64]
-//           [candidates_out:u64][count_out:u64]
-//
-// Phase 1: For each stream, XOR with invert mask (if is_high==0), ripple-carry
-//   add into 8 bitplanes on stack. SVE-vectorized 64 bytes/iter.
-// Phase 2: Scalar reconstruct 8-bit counters per bit position, threshold,
-//   emit qualifying vector_id = byte*8 + bit.
-//
-// Stack: [sp+0] frame_size, [sp+8] score_min, [sp+12] max_candidates,
-//   [sp+16] candidates_out, [sp+24] count_out, [sp+32] streams_ptr,
-//   [sp+40] is_high_ptr, [sp+48] n_streams, [sp+52] n_bytes,
-//   [sp+56] n_vectors, [sp+64] bp_base, [sp+72] pad.
-//   [sp+80 ..] 8 * n_bytes bitplane storage.
+// LOAD_SCALAR_PARAM_F32 (0x2A)
+// Encoding: [0x2A][idx:u8]
+// Loads one f32 scalar from param[idx] and broadcasts it into z0.s.
 // ================================================================
-.L_op_bitmap_score_pipeline:
-    ldr     w22, [x19]             // n_streams
-    ldr     w23, [x19, #4]        // n_bytes
-    ldr     w24, [x19, #8]        // n_vectors
-    ldr     w0, [x19, #12]        // score_min
-    ldr     w1, [x19, #16]        // max_candidates
-    add     x19, x19, #20
-    ldr     x8, [x19], #8         // streams_ptr
-    ldr     x11, [x19], #8        // is_high_ptr
-    ldr     x13, [x19], #8        // candidates_out
-    ldr     x12, [x19], #8        // count_out
-    cbz     w22, .L_bsp_zero
-    cbz     w23, .L_bsp_zero
-    // Allocate stack: 80 + 8*n_bytes, 16-byte aligned
-    mov     x2, x23
-    lsl     x3, x2, #3
-    add     x3, x3, #80
-    add     x3, x3, #15
-    and     x3, x3, #~15
-    sub     sp, sp, x3
-    str     x3, [sp, #0]
-    str     w0, [sp, #8]
-    str     w1, [sp, #12]
-    str     x13, [sp, #16]
-    str     x12, [sp, #24]
-    str     x8, [sp, #32]
-    str     x11, [sp, #40]
-    str     w22, [sp, #48]
-    str     w23, [sp, #52]
-    str     w24, [sp, #56]
-    add     x4, sp, #80
-    str     x4, [sp, #64]
-    // Zero all 8 bitplanes
-    ptrue   p0.b
-    cntb    x9
-    mov     z0.d, #0
-    mov     x5, x4
-    lsl     x6, x2, #3
-.L_bsp_zp:
-    cbz     x6, .L_bsp_p1
-    st1b    {z0.b}, p0, [x5]
-    add     x5, x5, x9
-    subs    x6, x6, x9
-    b.hi    .L_bsp_zp
-.L_bsp_p1:
-    // ── Phase 1: ripple-carry ──
-    ldr     x8, [sp, #32]
-    ldr     x11, [sp, #40]
-    mov     w3, #0
-.L_bsp_stream:
-    cmp     w3, w22
-    b.hs    .L_bsp_p2
-    ldr     x5, [x8, x3, lsl #3]
-    ldrb    w6, [x11, x3]
-    cmp     w6, #0
-    mov     w7, #0xFF
-    csel    w7, w7, wzr, eq
-    dup     z16.b, w7
-    ldr     x4, [sp, #64]
-    ldr     w14, [sp, #52]
-    mov     x15, #0
-.L_bsp_rca:
-    cmp     x15, x14
-    b.hs    .L_bsp_ns
-    whilelt p1.b, x15, x14
-    ld1b    {z0.b}, p1/z, [x5, x15]
-    eor     z0.b, z0.b, z16.b
-    mov     x16, x4
-    // bp[0]: XOR+AND ripple
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[1]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[2]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[3]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[4]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[5]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[6]
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    mov     z2.d, z1.d
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    and     z0.b, z2.b, z0.b
-    add     x16, x16, x2
-    // bp[7] (terminal — no carry out)
-    add     x6, x16, x15
-    ld1b    {z1.b}, p1/z, [x6]
-    eor     z1.b, z1.b, z0.b
-    st1b    {z1.b}, p1, [x6]
-    add     x15, x15, x9
-    b       .L_bsp_rca
-.L_bsp_ns:
-    add     w3, w3, #1
-    b       .L_bsp_stream
-.L_bsp_p2:
-    // ── Phase 2: threshold + extract ──
-    ldr     x4, [sp, #64]         // bp_base
-    ldr     w14, [sp, #52]        // n_bytes
-    ldr     w0, [sp, #8]          // score_min
-    ldr     w1, [sp, #12]         // max_candidates
-    ldr     x13, [sp, #16]        // candidates_out
-    ldr     x12, [sp, #24]        // count_out
-    mov     w3, #0                 // candidate_count
-    mov     x15, #0                // byte position j
-.L_bsp_ex:
-    cmp     x15, x14
-    b.hs    .L_bsp_done
-    // Load bp[0..7][j] into w-registers via computed offsets from bp_base
-    ldr     x16, [sp, #64]
-    ldrb    w4, [x16, x15]                           // bp[0]
-    add     x17, x16, x2
-    ldrb    w5, [x17, x15]                           // bp[1]
-    add     x17, x17, x2
-    ldrb    w6, [x17, x15]                           // bp[2]
-    add     x17, x17, x2
-    ldrb    w7, [x17, x15]                           // bp[3]
-    add     x17, x17, x2
-    ldrb    w16, [x17, x15]                          // bp[4]
-    add     x17, x17, x2
-    ldrb    w17, [x17, x15]                          // bp[5]
-    ldr     x10, [sp, #64]
-    mov     x23, x2
-    lsl     x23, x23, #1
-    add     x23, x23, x2, lsl #2          // 6 * n_bytes
-    add     x23, x10, x23
-    ldrb    w23, [x23, x15]                          // bp[6]
-    ldr     x10, [sp, #64]
-    mov     x24, x2
-    lsl     x24, x24, #3
-    sub     x24, x24, x2                  // 7 * n_bytes
-    add     x24, x10, x24
-    ldrb    w24, [x24, x15]                          // bp[7]
-    mov     w8, #0                 // bit b
-.L_bsp_bit:
-    cmp     w8, #8
-    b.hs    .L_bsp_nx
-    cmp     w3, w1
-    b.hs    .L_bsp_done
-    // Reconstruct 8-bit counter from bitplanes
-    lsr     w10, w4, w8
-    and     w10, w10, #1
-    lsr     w11, w5, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #1
-    lsr     w11, w6, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #2
-    lsr     w11, w7, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #3
-    lsr     w11, w16, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #4
-    lsr     w11, w17, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #5
-    lsr     w11, w23, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #6
-    lsr     w11, w24, w8
-    and     w11, w11, #1
-    orr     w10, w10, w11, lsl #7
-    cmp     w10, w0
-    b.lo    .L_bsp_sk
-    lsl     w11, w15, #3
-    add     w11, w11, w8
-    str     w11, [x13, x3, lsl #2]
-    add     w3, w3, #1
-.L_bsp_sk:
-    add     w8, w8, #1
-    b       .L_bsp_bit
-.L_bsp_nx:
-    add     x15, x15, #1
-    b       .L_bsp_ex
-.L_bsp_done:
-    str     w3, [x12]
-    ldr     x3, [sp, #0]
-    add     sp, sp, x3
+.L_op_load_scalar_param_f32:
+    ldrb    w9, [x19], #1
+    add     x10, sp, #128
+    ldr     x8, [x10, x9, lsl #3]
+    ldr     s0, [x8]
+    mov     z0.s, s0
     b       .L_dispatch
-.L_bsp_zero:
-    str     wzr, [x12]
+// ================================================================
+// LOAD_SCALAR_PARAM_F16 (0x8A)
+// Encoding: [0x8A][idx:u8]
+// Loads one f16 scalar from param[idx] and broadcasts it into z0.h.
+// ================================================================
+.L_op_load_scalar_param_f16:
+    ldrb    w9, [x19], #1
+    add     x10, sp, #128
+    ldr     x8, [x10, x9, lsl #3]
+    ptrue   p0.h
+    ld1rh   {z0.h}, p0/z, [x8]
     b       .L_dispatch
+// ================================================================
+// PACK_PANEL_F32 (0x8B)
+// Encoding: [0x8B][src_idx:u8][dst_idx:u8][row_stride:u32][flags:u8]
+// flags bit 0 clear: A panel, dst[k,row] = src[row * stride + k]
+// flags bit 0 set:   B panel, dst[k,col] = src[k * stride + col]
+// ================================================================
+.L_op_pack_panel_f32:
+    ldrb    w9, [x19], #1          // source param index
+    ldrb    w10, [x19], #1         // destination param index
+    ldr     w11, [x19]             // row stride in f32 elements
+    add     x19, x19, #4
+    ldrb    w12, [x19], #1         // flags
+    add     x14, sp, #128          // param table base
+    ldr     x8, [x14, x9, lsl #3] // source tile
+    ldr     x9, [x14, x10, lsl #3] // packed panel
+    lsl     x13, x11, #2           // row stride in bytes
+    ptrue   p0.s
+    tbnz    w12, #0, .L_pack_panel_f32_b
+    zero    {za2.s}
+    mov     w12, #0
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x13
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #4
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x13
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #8
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z3.s}, p0/z, [x8]
+    add     x8, x8, x13
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #12
+    ld1w    {z0.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z1.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z2.s}, p0/z, [x8]
+    add     x8, x8, x13
+    ld1w    {z3.s}, p0/z, [x8]
+    mova    za2h.s[w12, 0:3], {z0.s-z3.s}
+    mov     w12, #0
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    st1w    {z0.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z1.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z2.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z3.s}, p0, [x9]
+    addvl   x9, x9, #1
+    mov     w12, #4
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    st1w    {z0.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z1.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z2.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z3.s}, p0, [x9]
+    addvl   x9, x9, #1
+    mov     w12, #8
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    st1w    {z0.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z1.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z2.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z3.s}, p0, [x9]
+    addvl   x9, x9, #1
+    mov     w12, #12
+    mova    {z0.s-z3.s}, za2v.s[w12, 0:3]
+    st1w    {z0.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z1.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z2.s}, p0, [x9]
+    addvl   x9, x9, #1
+    st1w    {z3.s}, p0, [x9]
+    b       .L_dispatch
+.L_pack_panel_f32_b:
+    mov     w14, #16
+.L_pack_panel_f32_b_loop:
+    ld1w    {z0.s}, p0/z, [x8]
+    st1w    {z0.s}, p0, [x9]
+    add     x8, x8, x13
+    addvl   x9, x9, #1
+    subs    w14, w14, #1
+    b.ne    .L_pack_panel_f32_b_loop
+    b       .L_dispatch
+// ================================================================
+// REDUCE_STREAM_SUM_F32 (0x2D)
+// Encoding: [0x2D][src_idx:u8][out_idx:u8][chunk_count:u16]
+// Reduces each f32 z-vector window into one scalar output.
+// ================================================================
+.L_op_reduce_stream_sum_f32:
+    ldrb    w9, [x19], #1
+    ldrb    w10, [x19], #1
+    ldrh    w11, [x19]
+    add     x19, x19, #2
+    add     x12, sp, #128
+    ldr     x8, [x12, x9, lsl #3]
+    ldr     x10, [x12, x10, lsl #3]
+    ptrue   p0.s
+.L_psyne_rss_loop:
+    ld1w    {z0.s}, p0/z, [x8]
+    faddv   s0, p0, z0.s
+    str     s0, [x10]
+    addvl   x8, x8, #1
+    add     x10, x10, #4
+    subs    w11, w11, #1
+    b.ne    .L_psyne_rss_loop
+    b       .L_dispatch
+// ================================================================
+// REDUCE_STREAM_MAX_F32 (0x2E)
+// Encoding: [0x2E][src_idx:u8][out_idx:u8][chunk_count:u16]
+// Reduces each f32 z-vector window into one max scalar output.
+// ================================================================
+.L_op_reduce_stream_max_f32:
+    ldrb    w9, [x19], #1
+    ldrb    w10, [x19], #1
+    ldrh    w11, [x19]
+    add     x19, x19, #2
+    add     x12, sp, #128
+    ldr     x8, [x12, x9, lsl #3]
+    ldr     x10, [x12, x10, lsl #3]
+    ptrue   p0.s
+.L_psyne_rsm_loop:
+    ld1w    {z0.s}, p0/z, [x8]
+    fmaxv   s0, p0, z0.s
+    str     s0, [x10]
+    addvl   x8, x8, #1
+    add     x10, x10, #4
+    subs    w11, w11, #1
+    b.ne    .L_psyne_rsm_loop
+    b       .L_dispatch
+// ================================================================
+// STORE_SCALAR_PARAM_F32 (0x2F)
+// Encoding: [0x2F][idx:u8]
+// Stores lane 0 of z0.s to param[idx].
+// ================================================================
+.L_op_store_scalar_param_f32:
+    ldrb    w9, [x19], #1
+    add     x10, sp, #128
+    ldr     x8, [x10, x9, lsl #3]
+    str     s0, [x8]
+    b       .L_dispatch
+// ================================================================
+// RESERVED_OPCODES (0x30-0x33)
+// ================================================================
+.L_op_reserved:
+    brk     #0x2A
 // ================================================================
 // MOV_ZREG (0x34) — Move z{src} to z{dst}
 // Encoding: [0x34][src:u8][dst:u8]
@@ -5276,6 +4489,308 @@ _stream_exec:
     adr     x26, .L_fmzr_3
     b       .L_tramp_load          // load [sp] to z{dst}
 .L_fmzr_3:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FADD_ZREG_F16 (0x80) — z{dst}.h = z{src1}.h + z{src2}.h
+// Encoding: [0x80][dst:u8][src1:u8][src2:u8]
+// ================================================================
+.L_op_fadd_zreg_f16:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src1 index
+    ldrb    w23, [x19], #1         // src2 index
+    addvl   sp, sp, #-1            // scratch slot
+    adr     x26, .L_fazrh_1
+    b       .L_tramp_store         // store z{src1} to [sp]
+.L_fazrh_1:
+    ldr     z0, [sp]               // z0 = src1
+    mov     w9, w23                // src2 index
+    adr     x26, .L_fazrh_2
+    b       .L_tramp_store         // store z{src2} to [sp]
+.L_fazrh_2:
+    ldr     z1, [sp]               // z1 = src2
+    fadd    z0.h, z0.h, z1.h
+    str     z0, [sp]               // result to stack
+    mov     w9, w22                // dst index
+    adr     x26, .L_fazrh_3
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_fazrh_3:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FSUB_ZREG_F16 (0x81) — z{dst}.h = z{src1}.h - z{src2}.h
+// Encoding: [0x81][dst:u8][src1:u8][src2:u8]
+// ================================================================
+.L_op_fsub_zreg_f16:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src1 index
+    ldrb    w23, [x19], #1         // src2 index
+    addvl   sp, sp, #-1            // scratch slot
+    adr     x26, .L_fszrh_1
+    b       .L_tramp_store         // store z{src1} to [sp]
+.L_fszrh_1:
+    ldr     z0, [sp]               // z0 = src1
+    mov     w9, w23                // src2 index
+    adr     x26, .L_fszrh_2
+    b       .L_tramp_store         // store z{src2} to [sp]
+.L_fszrh_2:
+    ldr     z1, [sp]               // z1 = src2
+    fsub    z0.h, z0.h, z1.h
+    str     z0, [sp]               // result to stack
+    mov     w9, w22                // dst index
+    adr     x26, .L_fszrh_3
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_fszrh_3:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FMUL_ZREG_F16 (0x82) — z{dst}.h = z{src1}.h * z{src2}.h
+// Encoding: [0x82][dst:u8][src1:u8][src2:u8]
+// ================================================================
+.L_op_fmul_zreg_f16:
+    ldrb    w22, [x19], #1         // dst index
+    ldrb    w9, [x19], #1          // src1 index
+    ldrb    w23, [x19], #1         // src2 index
+    addvl   sp, sp, #-1            // scratch slot
+    adr     x26, .L_fmzrh_1
+    b       .L_tramp_store         // store z{src1} to [sp]
+.L_fmzrh_1:
+    ldr     z0, [sp]               // z0 = src1
+    mov     w9, w23                // src2 index
+    adr     x26, .L_fmzrh_2
+    b       .L_tramp_store         // store z{src2} to [sp]
+.L_fmzrh_2:
+    ldr     z1, [sp]               // z1 = src2
+    fmul    z0.h, z0.h, z1.h
+    str     z0, [sp]               // result to stack
+    mov     w9, w22                // dst index
+    adr     x26, .L_fmzrh_3
+    b       .L_tramp_load          // load [sp] to z{dst}
+.L_fmzrh_3:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// CONVERT_F32_F16 (0x83)
+// Encoding: [0x83][src_idx:u8][dst_idx:u8][chunk_count:u16]
+// Converts two f32 z-vectors into one f16 z-vector per chunk.
+// ================================================================
+.L_op_convert_f32_f16:
+    ldrb    w9, [x19], #1          // source param index
+    ldrb    w10, [x19], #1         // destination param index
+    ldrh    w11, [x19], #2         // destination f16 vector chunks
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // f32 source
+    ldr     x9, [x12, x10, lsl #3] // f16 destination
+    mov     x13, #1
+    whilelt p0.s, xzr, x13
+    whilelt p1.h, xzr, x13
+    ptrue   p2.s
+    cbz     w11, .L_dispatch
+.L_cvt_f32_f16_loop:
+    ld1w    {z0.s}, p2/z, [x8]
+    mov     w14, #16
+.L_cvt_f32_f16_first:
+    fcvt    z1.h, p0/m, z0.s
+    st1h    {z1.h}, p1, [x9]
+    add     x9, x9, #2
+    ext     z0.b, z0.b, z0.b, #4
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f32_f16_first
+    addvl   x8, x8, #1
+    ld1w    {z0.s}, p2/z, [x8]
+    mov     w14, #16
+.L_cvt_f32_f16_second:
+    fcvt    z1.h, p0/m, z0.s
+    st1h    {z1.h}, p1, [x9]
+    add     x9, x9, #2
+    ext     z0.b, z0.b, z0.b, #4
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f32_f16_second
+    addvl   x8, x8, #1
+    subs    w11, w11, #1
+    b.ne    .L_cvt_f32_f16_loop
+    b       .L_dispatch
+// ================================================================
+// CONVERT_F16_F32 (0x84)
+// Encoding: [0x84][src_idx:u8][dst_idx:u8][chunk_count:u16]
+// Converts one f16 z-vector into two f32 z-vectors per chunk.
+// ================================================================
+.L_op_convert_f16_f32:
+    ldrb    w9, [x19], #1          // source param index
+    ldrb    w10, [x19], #1         // destination param index
+    ldrh    w11, [x19], #2         // source f16 vector chunks
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // f16 source
+    ldr     x9, [x12, x10, lsl #3] // f32 destination
+    mov     x13, #1
+    whilelt p0.s, xzr, x13
+    mov     x13, #16
+    whilelt p1.h, xzr, x13
+    cbz     w11, .L_dispatch
+.L_cvt_f16_f32_loop:
+    ld1h    {z0.h}, p1/z, [x8]
+    mov     w14, #16
+.L_cvt_f16_f32_first:
+    fcvt    z1.s, p0/m, z0.h
+    st1w    {z1.s}, p0, [x9]
+    add     x9, x9, #4
+    ext     z0.b, z0.b, z0.b, #2
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f16_f32_first
+    add     x8, x8, #32
+    ld1h    {z0.h}, p1/z, [x8]
+    mov     w14, #16
+.L_cvt_f16_f32_second:
+    fcvt    z1.s, p0/m, z0.h
+    st1w    {z1.s}, p0, [x9]
+    add     x9, x9, #4
+    ext     z0.b, z0.b, z0.b, #2
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f16_f32_second
+    add     x8, x8, #32
+    subs    w11, w11, #1
+    b.ne    .L_cvt_f16_f32_loop
+    b       .L_dispatch
+// ================================================================
+// CONVERT_F32_BF16 (0x85)
+// Encoding: [0x85][src_idx:u8][dst_idx:u8][chunk_count:u16]
+// Converts two f32 z-vectors into one bf16 z-vector per chunk.
+// ================================================================
+.L_op_convert_f32_bf16:
+    ldrb    w9, [x19], #1          // source param index
+    ldrb    w10, [x19], #1         // destination param index
+    ldrh    w11, [x19], #2         // destination bf16 vector chunks
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // f32 source
+    ldr     x9, [x12, x10, lsl #3] // bf16 destination
+    mov     x13, #1
+    whilelt p0.s, xzr, x13
+    whilelt p1.h, xzr, x13
+    ptrue   p2.s
+    cbz     w11, .L_dispatch
+.L_cvt_f32_bf16_loop:
+    ld1w    {z0.s}, p2/z, [x8]
+    mov     w14, #16
+.L_cvt_f32_bf16_first:
+    bfcvt   z1.h, p0/m, z0.s
+    st1h    {z1.h}, p1, [x9]
+    add     x9, x9, #2
+    ext     z0.b, z0.b, z0.b, #4
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f32_bf16_first
+    addvl   x8, x8, #1
+    ld1w    {z0.s}, p2/z, [x8]
+    mov     w14, #16
+.L_cvt_f32_bf16_second:
+    bfcvt   z1.h, p0/m, z0.s
+    st1h    {z1.h}, p1, [x9]
+    add     x9, x9, #2
+    ext     z0.b, z0.b, z0.b, #4
+    subs    w14, w14, #1
+    b.ne    .L_cvt_f32_bf16_second
+    addvl   x8, x8, #1
+    subs    w11, w11, #1
+    b.ne    .L_cvt_f32_bf16_loop
+    b       .L_dispatch
+// ================================================================
+// CONVERT_BF16_F32 (0x86)
+// Encoding: [0x86][src_idx:u8][dst_idx:u8][chunk_count:u16]
+// Converts one bf16 z-vector into two f32 z-vectors per chunk.
+// ================================================================
+.L_op_convert_bf16_f32:
+    ldrb    w9, [x19], #1          // source param index
+    ldrb    w10, [x19], #1         // destination param index
+    ldrh    w11, [x19], #2         // source bf16 vector chunks
+    add     x12, sp, #128          // param table base
+    ldr     x8, [x12, x9, lsl #3] // bf16 source
+    ldr     x9, [x12, x10, lsl #3] // f32 destination
+    mov     x13, #16
+    whilelt p1.h, xzr, x13
+    ptrue   p0.s
+    cbz     w11, .L_dispatch
+.L_cvt_bf16_f32_loop:
+    ld1h    {z0.h}, p1/z, [x8]
+    uunpklo z1.s, z0.h
+    lsl     z1.s, z1.s, #16
+    st1w    {z1.s}, p0, [x9]
+    add     x8, x8, #32
+    addvl   x9, x9, #1
+    ld1h    {z0.h}, p1/z, [x8]
+    uunpklo z1.s, z0.h
+    lsl     z1.s, z1.s, #16
+    st1w    {z1.s}, p0, [x9]
+    add     x8, x8, #32
+    addvl   x9, x9, #1
+    subs    w11, w11, #1
+    b.ne    .L_cvt_bf16_f32_loop
+    b       .L_dispatch
+// ================================================================
+// FABS_ZREG (0x87) — z{dst}.s = abs(z{src}.s)
+// Encoding: [0x87][dst:u8][src:u8]
+// ================================================================
+.L_op_fabs_zreg:
+    ldrb    w22, [x19], #1         // dst
+    ldrb    w9, [x19], #1          // src
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_fabs_1
+    b       .L_tramp_store
+.L_fabs_1:
+    ldr     z0, [sp]
+    fabs    z0.s, p0/m, z0.s
+    str     z0, [sp]
+    mov     w9, w22
+    adr     x26, .L_fabs_2
+    b       .L_tramp_load
+.L_fabs_2:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FSQRT_ZREG (0x88) — z{dst}.s = sqrt(z{src}.s)
+// Encoding: [0x88][dst:u8][src:u8]
+// ================================================================
+.L_op_fsqrt_zreg:
+    ldrb    w22, [x19], #1         // dst
+    ldrb    w9, [x19], #1          // src
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_fsqrt_1
+    b       .L_tramp_store
+.L_fsqrt_1:
+    ldr     z0, [sp]
+    fsqrt   z0.s, p0/m, z0.s
+    str     z0, [sp]
+    mov     w9, w22
+    adr     x26, .L_fsqrt_2
+    b       .L_tramp_load
+.L_fsqrt_2:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FDIV_ZREG (0x89) — z{dst}.s = z{src1}.s / z{src2}.s
+// Encoding: [0x89][dst:u8][src1:u8][src2:u8]
+// ================================================================
+.L_op_fdiv_zreg:
+    ldrb    w22, [x19], #1         // dst
+    ldrb    w9, [x19], #1          // src1
+    ldrb    w23, [x19], #1         // src2
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_fdiv_1
+    b       .L_tramp_store
+.L_fdiv_1:
+    ldr     z0, [sp]
+    mov     w9, w23
+    adr     x26, .L_fdiv_2
+    b       .L_tramp_store
+.L_fdiv_2:
+    ldr     z1, [sp]
+    fdiv    z0.s, p0/m, z0.s, z1.s
+    str     z0, [sp]
+    mov     w9, w22
+    adr     x26, .L_fdiv_3
+    b       .L_tramp_load
+.L_fdiv_3:
     addvl   sp, sp, #1
     b       .L_dispatch
 // ================================================================
@@ -9923,6 +9438,52 @@ _stream_exec:
     fmul    z4.s, z4.s, z5.s        // z4 = exp(z0)
 .endm
 // ================================================================
+// LOG POLYNOMIAL MACRO — natural log approximation for positive fp32 lanes.
+// Expects input in z0. Result in z4. Requires z26=1.0 and z27=ln(2).
+// ================================================================
+.macro LOG_POLY_Z0_TO_Z4
+    lsr     z1.s, z0.s, #23
+    and     z1.s, z1.s, #0xFF
+    mov     z2.s, #127
+    sub     z1.s, z1.s, z2.s
+    scvtf   z1.s, p0/m, z1.s
+    mov     z3.d, z0.d
+    and     z3.s, z3.s, #0x007FFFFF
+    orr     z3.s, z3.s, #0x3F800000
+    fsub    z3.s, z3.s, z26.s
+    fmov    z14.s, #2.0
+    fadd    z11.s, z3.s, z14.s
+    frecpe  z12.s, z11.s
+    frecps  z13.s, z11.s, z12.s
+    fmul    z12.s, p0/m, z12.s, z13.s
+    frecps  z13.s, z11.s, z12.s
+    fmul    z12.s, p0/m, z12.s, z13.s
+    fmul    z3.s, z3.s, z12.s      // y = (m - 1) / (m + 1)
+    fmul    z11.s, z3.s, z3.s      // y^2
+    movz    w4, #0x3E12, lsl #16
+    movk    w4, #0x4925
+    fmov    s8, w4
+    mov     z8.s, s8               // 1/7
+    movz    w4, #0x3E4C, lsl #16
+    movk    w4, #0xCCCD
+    fmov    s9, w4
+    mov     z9.s, s9               // 1/5
+    movz    w4, #0x3EAA, lsl #16
+    movk    w4, #0xAAAB
+    fmov    s10, w4
+    mov     z10.s, s10             // 1/3
+    fmul    z4.s, z8.s, z11.s
+    fadd    z4.s, z4.s, z9.s
+    fmul    z4.s, z4.s, z11.s
+    fadd    z4.s, z4.s, z10.s
+    fmul    z4.s, z4.s, z11.s
+    fadd    z4.s, z4.s, z26.s
+    fmul    z4.s, z4.s, z3.s
+    fmul    z4.s, z4.s, z14.s
+    fmul    z1.s, z1.s, z27.s
+    fadd    z4.s, z1.s, z4.s
+.endm
+// ================================================================
 // SIGMOID MACRO — computes sigmoid(z7) into z5, clobbers z0-z6.
 // Requires exp polynomial constants in z26-z31, z27, z28.
 // ================================================================
@@ -9962,6 +9523,50 @@ _stream_exec:
     mov     z27.s, s27              // c1 = ln(2)
     fmov    z26.s, #1.0             // c0
 .endm
+// ================================================================
+// FEXP_ZREG (0x2B) — z{dst}.s = exp(z{src}.s)
+// Encoding: [0x2B][dst:u8][src:u8]
+// ================================================================
+.L_op_fexp_zreg:
+    ldrb    w22, [x19], #1
+    ldrb    w9, [x19], #1
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_fexp_1
+    b       .L_tramp_store
+.L_fexp_1:
+    ldr     z0, [sp]
+    LOAD_EXP_CONSTANTS
+    EXP_POLY_Z0_TO_Z4
+    str     z4, [sp]
+    mov     w9, w22
+    adr     x26, .L_fexp_done
+    b       .L_tramp_load
+.L_fexp_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
+// ================================================================
+// FLOG_ZREG (0x2C) — z{dst}.s = log(z{src}.s)
+// Encoding: [0x2C][dst:u8][src:u8]
+// ================================================================
+.L_op_flog_zreg:
+    ldrb    w22, [x19], #1
+    ldrb    w9, [x19], #1
+    ptrue   p0.s
+    addvl   sp, sp, #-1
+    adr     x26, .L_flog_1
+    b       .L_tramp_store
+.L_flog_1:
+    ldr     z0, [sp]
+    LOAD_EXP_CONSTANTS
+    LOG_POLY_Z0_TO_Z4
+    str     z4, [sp]
+    mov     w9, w22
+    adr     x26, .L_flog_done
+    b       .L_tramp_load
+.L_flog_done:
+    addvl   sp, sp, #1
+    b       .L_dispatch
 // ================================================================
 // SILU_BACKWARD_FP32 (0x69) — SiLU backward pass
 // dx = dy * sigmoid(x) * (1 + x * (1 - sigmoid(x)))

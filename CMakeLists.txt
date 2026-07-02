@@ -150,6 +150,7 @@ endif()
 add_library(ane STATIC
     src/bytecode_interpreter.s
     src/parser.cpp
+    src/psyne.cpp
 )
 target_include_directories(ane PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
